@@ -25,6 +25,14 @@ Item {
     clip: true
     property bool opening: false
     onVisibleChanged: if (visible) opening = false
+    // #158: opening hides the covers while the front one flies to the album
+    // page; onLoaded/onVisibleChanged put them back. But a favourite that only
+    // plays in place (a radio leaf — rowTap plays, no page opens, we stay
+    // visible) fires none of those, so the covers would stay hidden and the
+    // Cover Flow looks blank. Guard: once opening is set, if we are still
+    // visible after the fly could not have opened a page, show the covers again.
+    onOpeningChanged: if (opening) openGuard.restart()
+    Timer { id: openGuard; interval: 1500; onTriggered: if (root.visible) root.opening = false }
     // local albums carry an artwork_track_id (art); plugin albums carry their
     // cover as a Lyrion icon string (icon) that Api.imageUrl resolves to a URL
     function srcOf(it) { return it && it.art ? Api.lmsBase + "/music/" + it.art + "/cover?size=" + px

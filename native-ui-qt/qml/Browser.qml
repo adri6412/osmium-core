@@ -1500,6 +1500,11 @@ Item {
                         visible: Library.state === 2 && Library.count > 0 && !root.isPage && !root.curSvcNeedsLogin
                         cdCoverUrl: root.inCdPlayer ? root.cdCoverUrl : ""
                         inCdPlayer: root.inCdPlayer
+                        // #159: Up from the grid's top row reaches the view
+                        // selector. Only when no search bar sits in between (a
+                        // search bar is the natural Up target and is reachable
+                        // spatially); otherwise leave the spatial default.
+                        gridUpTarget: (viewPick.visible && !root.hasSearch && !root.msearchOpen) ? viewTap : null
                         onRowTap: (row, onPlay) => root.rowTap(row, onPlay)
                         onRowMinus: (row) => root.recBlockRow(row)
                         // list.y gia' comprende le barre di ricerca; la fascia del CD sposta tutto il contenitore
