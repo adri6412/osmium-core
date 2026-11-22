@@ -1,0 +1,21 @@
+# osmium-core is source-only: no build artifacts, no per-arch binaries.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Node / frontend build output (admin-webui, native-ui-np)
+node_modules/
+dist/
+out/
+
+# Native UI build trees / generated files
+build/
+*.o
+native-ui-np/qt/wasm/imports.generated.qml
+
+# Editor / OS noise
+.DS_Store
+*.swp
