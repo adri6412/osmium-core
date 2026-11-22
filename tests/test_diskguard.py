@@ -80,7 +80,7 @@ class ReserveTest(unittest.TestCase):
 
 
 def load_prefs_guard():
-    path = os.path.join(HERE, '..', 'distro', 'config', 'includes.chroot', 'usr', 'local', 'sbin',
+    path = os.path.join(HERE, '..', 'sbin',
                         'hifi-lyrion-prefs-guard.py')
     spec = importlib.util.spec_from_file_location('prefs_guard', path)
     mod = importlib.util.module_from_spec(spec)

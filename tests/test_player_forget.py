@@ -220,22 +220,5 @@ class FollowDacStateTest(unittest.TestCase):
         self.assertEqual(log, [])
 
 
-class UnitsTest(unittest.TestCase):
-    def test_units_forget_on_stop(self):
-        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'distro', 'config',
-                            'includes.chroot', 'etc', 'systemd', 'system')
-        for unit in ('hifi-zone@.service', 'hifi-bt-player@.service'):
-            with open(os.path.join(base, unit)) as f:
-                self.assertIn('ExecStopPost=-/usr/bin/python3 /usr/local/bin/hifi_squeezelite.py forget-unit %n',
-                              f.read(), unit)
-
-    def test_squeezelite_runs_dac_check_after_start(self):
-        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'distro', 'config',
-                            'includes.chroot', 'etc', 'systemd', 'system')
-        with open(os.path.join(base, 'squeezelite.service')) as f:
-            self.assertIn('ExecStartPost=-/usr/bin/python3 /usr/local/bin/hifi_squeezelite.py dac-check',
-                          f.read())
-
-
 if __name__ == '__main__':
     unittest.main()

@@ -33,7 +33,7 @@ sys.path.insert(0, HERE)
 import hifi_squeezelite as sq  # noqa: E402
 from test_squeezelite_conf import Sandbox, STREAM_NATIVE_BE, STREAM_PCM_ONLY, LEGACY, LEGACY_MAC  # noqa: E402
 
-WRAPPER = os.path.join(ROOT, 'distro', 'config', 'includes.chroot', 'usr', 'local', 'sbin', 'hifi-pcm2dsd.py')
+WRAPPER = os.path.join(ROOT, 'sbin', 'hifi-pcm2dsd.py')
 MAC = '02:aa:bb:cc:dd:ee'
 
 

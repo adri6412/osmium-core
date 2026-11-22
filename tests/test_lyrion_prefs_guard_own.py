@@ -18,8 +18,7 @@ import tempfile
 import unittest
 
 _GUARD = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..', 'distro', 'config',
-    'includes.chroot', 'usr', 'local', 'sbin', 'hifi-lyrion-prefs-guard.py')
+    os.path.dirname(os.path.abspath(__file__)), '..', 'sbin', 'hifi-lyrion-prefs-guard.py')
 _spec = importlib.util.spec_from_file_location('hifi_lyrion_prefs_guard', _GUARD)
 guard = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(guard)

@@ -16,7 +16,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, '..')
-WRAPPER = os.path.join(ROOT, 'distro', 'config', 'includes.chroot', 'usr', 'local', 'sbin', 'hifi-upsample.py')
+WRAPPER = os.path.join(ROOT, 'sbin', 'hifi-upsample.py')
 MAC = '02:aa:bb:cc:dd:ee'
 
 

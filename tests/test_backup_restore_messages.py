@@ -124,7 +124,7 @@ class BackupErrorCodeTests(_Tmp):
 
 class BackupWorkerStatusTests(_Tmp):
     def _worker(self):
-        path = os.path.join(REPO, "distro/config/includes.chroot/usr/local/sbin/hifi-backup-run.py")
+        path = os.path.join(REPO, "sbin/hifi-backup-run.py")
         spec = importlib.util.spec_from_file_location("hifi_backup_run_under_test", path)
         mod = importlib.util.module_from_spec(spec)
         out, err = sys.stdout, sys.stderr
@@ -168,7 +168,7 @@ class BackupWorkerStatusTests(_Tmp):
                              if n != hb.HISTORY_NAME))
 
     def test_no_italian_left_in_the_worker_status_calls(self):
-        with open(os.path.join(REPO, "distro/config/includes.chroot/usr/local/sbin/hifi-backup-run.py")) as f:
+        with open(os.path.join(REPO, "sbin/hifi-backup-run.py")) as f:
             src = f.read()
         for m in re.finditer(r'(?<!def )\b(?:write_status|fail)\(([^)]*)\)', src):
             args = m.group(1)

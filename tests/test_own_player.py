@@ -25,8 +25,7 @@ OWN = '02:aa:bb:cc:dd:ee'
 BT = '02:11:22:33:44:55'
 OTHER = '00:04:20:12:34:56'     # a real Squeezebox elsewhere on the LAN
 
-CAPTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'distro', 'config',
-                       'includes.chroot', 'usr', 'local', 'sbin', 'hifi-capture-playback-state.py')
+CAPTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sbin', 'hifi-capture-playback-state.py')
 
 
 def _players(*ids):

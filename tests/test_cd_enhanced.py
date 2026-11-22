@@ -154,8 +154,7 @@ class WorkerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         spec = importlib.util.spec_from_file_location(
-            'hifi_rip_cd_enh', os.path.join(ROOT, 'distro', 'config', 'includes.chroot', 'usr',
-                                            'local', 'sbin', 'hifi-rip-cd.py'))
+            'hifi_rip_cd_enh', os.path.join(ROOT, 'sbin', 'hifi-rip-cd.py'))
         cls.rip = importlib.util.module_from_spec(spec)
         with mock.patch('hifi_logging.tee_stdio_to_file'):
             spec.loader.exec_module(cls.rip)

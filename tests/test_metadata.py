@@ -1443,7 +1443,7 @@ class RipWorkerTests(unittest.TestCase):
 
     def test_extra_tags(self):
         import importlib.util
-        path = os.path.join(ROOT, 'distro', 'config', 'includes.chroot', 'usr', 'local', 'sbin', 'hifi-rip-cd.py')
+        path = os.path.join(ROOT, 'sbin', 'hifi-rip-cd.py')
         spec = importlib.util.spec_from_file_location('hifi_rip_cd', path)
         mod = importlib.util.module_from_spec(spec)
         with mock.patch('hifi_logging.tee_stdio_to_file'):

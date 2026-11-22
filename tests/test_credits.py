@@ -1,4 +1,4 @@
-"""Tests for the Licenses & credits page: distro/gen-credits.py (the Debian
+"""Tests for the Licenses & credits page: scripts/gen-credits.py (the Debian
 package list written at image build) and api_server.py's /credits.
 
 Hermetic: a fake chroot in a temporary folder. When the build chroot
@@ -16,7 +16,7 @@ import unittest
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, ROOT)
 
-_spec = importlib.util.spec_from_file_location('gen_credits', os.path.join(ROOT, 'distro', 'gen-credits.py'))
+_spec = importlib.util.spec_from_file_location('gen_credits', os.path.join(ROOT, 'scripts', 'gen-credits.py'))
 gc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gc)
 
