@@ -41,7 +41,7 @@ python3 scripts/build-payload.py "$OSMIUM" "$OUT"
 echo "== page and client"
 cp site/np.html "$OUT/index.html"
 cp client/np-device.js "$OUT/client/"
-cp "$OSMIUM/website/favicon.svg" "$OUT/favicon.svg"
+cp site/favicon.svg "$OUT/favicon.svg"
 # PWA: installable as an app. The icon is the SVG mark (no rasteriser needed;
 # browsers accept an SVG icon with sizes "any" for install).
 cp site/manifest.webmanifest site/sw.js "$OUT/"
