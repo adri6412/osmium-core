@@ -1128,6 +1128,15 @@
       "reverted": "Nessuna conferma ricevuta — ripristinata la frequenza nativa.",
       "failed": "Impossibile cambiare la frequenza di aggiornamento."
     },
+    "display": {
+      "panel": {
+        "title": "Display touch DSI",
+        "help": "Seleziona il pannello DSI collegato al connettore display della scheda. Il driver viene caricato all'avvio, quindi applicarlo riavvia. Scegli \"Nessuno / auto\" per il display ufficiale Raspberry Pi (rilevato in automatico) o per il solo HDMI.",
+        "none": "Nessuno / auto",
+        "rebootPrompt": "Il pannello viene applicato al riavvio. Riavviare ora?",
+        "setFailed": "Impossibile applicare il pannello DSI."
+      }
+    },
     "displayMode": {
       "help": "Scegli se questo dispositivo funziona con l'interfaccia touchscreen sullo schermo oppure in modalità headless (senza schermo), controllato da remoto tramite l'app companion Android, l'interfaccia web di Lyrion (porta 9000) o la pagina delle sorgenti musicali (porta 8080).",
       "currentGui": "Interfaccia sullo schermo (touchscreen)",

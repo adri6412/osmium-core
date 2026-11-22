@@ -1222,6 +1222,10 @@ _AUTH_ROUTES = {
     # dtoverlay; takes effect on reboot. Distinct from the runtime output picker.
     ('/api/system/dac_hats', 'GET'): '/dac_hats',
     ('/api/system/dac_hat', 'POST'): '/set_dac_hat',
+    # DSI touch panel overlay (Raspberry Pi only): writes a config.txt dtoverlay;
+    # takes effect on reboot. Twin of the DAC HAT selector above.
+    ('/api/system/display_panels', 'GET'): '/display_panels',
+    ('/api/system/display_panel', 'POST'): '/set_display_panel',
     # Toggle an ALSA playback switch of the output card (onboard S/PDIF/IEC958).
     ('/api/system/mixer_switch', 'POST'): '/set_mixer_switch',
     # The rest of the squeezelite command line (DSD mode, rate limit, hardware

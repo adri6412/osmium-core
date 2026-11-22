@@ -1066,6 +1066,13 @@
     },
     "display": {
       "currentLabel": "Aktuell",
+      "panel": {
+        "title": "DSI-Touchdisplay",
+        "help": "Wähle das DSI-Panel, das am Display-Anschluss der Platine angeschlossen ist. Das Device-Tree-Overlay wird beim Start geladen, daher startet der Player beim Anwenden neu. Wähle \"Keins / automatisch\" für das offizielle Raspberry-Pi-Display (automatisch erkannt) oder nur HDMI.",
+        "none": "Keins / automatisch",
+        "rebootPrompt": "Der Player muss neu starten, um das gewählte Panel zu laden. Fortfahren?",
+        "saved": "DSI-Panel gespeichert, Neustart…"
+      },
       "headless": "Headless (ohne Bildschirm)",
       "onscreen": "Oberfläche auf dem Bildschirm",
       "switchToOnscreen": "Oberfläche auf dem Bildschirm wieder einschalten",

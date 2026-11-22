@@ -1128,6 +1128,15 @@
       "reverted": "Keine Bestätigung erhalten – Rückkehr zur nativen Bildwiederholrate.",
       "failed": "Die Bildwiederholrate konnte nicht geändert werden."
     },
+    "display": {
+      "panel": {
+        "title": "DSI-Touchdisplay",
+        "help": "Wähle das DSI-Panel, das am Display-Anschluss der Platine angeschlossen ist. Der Treiber wird beim Start geladen, daher wird beim Anwenden neu gestartet. Wähle \"Keins / automatisch\" für das offizielle Raspberry-Pi-Display (automatisch erkannt) oder nur HDMI.",
+        "none": "Keins / automatisch",
+        "rebootPrompt": "Das Panel wird beim Neustart angewendet. Jetzt neu starten?",
+        "setFailed": "DSI-Panel konnte nicht angewendet werden."
+      }
+    },
     "displayMode": {
       "help": "Auswählen, ob dieses Gerät über die Touchscreen-Benutzeroberfläche auf dem Bildschirm oder im Headless-Modus (ohne Bildschirm) betrieben werden soll – in letzterem Fall erfolgt die Steuerung aus der Ferne über die zugehörige Android-App, die Web-Administration (http://osmium.local) oder die Lyrion-Weboberfläche (Port 9000).",
       "currentGui": "Bildschirmoberfläche (Touchscreen)",

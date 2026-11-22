@@ -277,6 +277,10 @@ Item {
         // sub-section; dacHats is the shipped card catalogue, dacHatCur the id in
         // effect. Boot-time overlay — distinct from the runtime output above.
         property bool dacSupported: false; property var dacHats: []; property string dacHatCur: ""
+        // Display → DSI touch panel (Raspberry Pi only). dsiSupported gates the
+        // sub-section; dsiPanels is the shipped panel catalogue, dsiPanelCur the id
+        // in effect. Boot-time overlay: set it over HDMI/TV, reboot, the DSI lights.
+        property bool dsiSupported: false; property var dsiPanels: []; property string dsiPanelCur: ""
         // the rest of squeezelite's command line (api /squeezelite_conf)
         property var sq: ({ loaded: false, conf: {}, args: "", dsd_detected: "dop", mixers: [], choices: {}, pcm2dsd: {} })
         // System tweaks (api /system_tweaks): OS-level CPU knobs, off by default.
@@ -533,6 +537,11 @@ Item {
                 dacSupported = d.supported === true
                 dacHatCur = str(d, "current")
                 dacHats = (d.cards || []).map(function(x) { return { id: String(x.id || ""), name: String(x.name || ""), dacchip: String(x.dacchip || "") } })
+            })
+            get(api("/display_panels"), function(d) {
+                dsiSupported = d.supported === true
+                dsiPanelCur = str(d, "current")
+                dsiPanels = (d.panels || []).map(function(x) { return { id: String(x.id || ""), name: String(x.name || ""), detail: String(x.detail || "") } })
             })
             get(api("/squeezelite_conf"), function(d) {
                 sq = { loaded: !!d.conf, conf: d.conf || {}, args: String(d.args || ""), dsd_detected: String(d.dsd_detected || "dop"),
@@ -2479,11 +2488,25 @@ Item {
                 ro.style = "border"; ro.hh = 50
             }
         }
+        if (cfg.dsiSupported) secDsiPanel()
         sep()
         label("settings.playerEnabled.label"); help("settings.playerEnabled.help")
         var ps = info(Tr.t(cfg.playerEnabled ? "settings.playerEnabled.currentOn" : "settings.playerEnabled.currentOff"), ""); ps.style = "row"; ps.icon = "speaker"
         if (pendAct === "player_switch") confirmRow(Tr.t("settings.playerEnabled.offWarning"), Tr.t("settings.playerEnabled.confirmOff"), "player_confirm")
         else action(Tr.t(cfg.playerEnabled ? "settings.playerEnabled.switchOff" : "settings.playerEnabled.switchOn"), "player_switch", "dark")
+    }
+    // Display → DSI touch panel (Raspberry Pi only). Boot-time device-tree overlay,
+    // so picking a panel reboots (dsi_pick confirms). "None" (empty id) = the
+    // official panel auto-detected or HDMI only. Twin of secHat().
+    function secDsiPanel() {
+        sep()
+        label("settings.display.panel.title")
+        help("settings.display.panel.help", 12)
+        option(Tr.t("settings.display.panel.none"), "", "", cfg.dsiPanelCur === "", "dsi_pick").hh = 56
+        for (var i = 0; i < cfg.dsiPanels.length; i++) {
+            var p = cfg.dsiPanels[i]
+            var r = option(p.name, p.detail, p.id, cfg.dsiPanelCur === p.id, "dsi_pick"); r.hh = 60
+        }
     }
     function secTimezone() {
         help("settings.timezone.help")
@@ -3017,6 +3040,19 @@ Item {
                 post(A("/set_dac_hat"), { id: arg }, function(ok, d) {
                     if (ok && d && d.success) { cfg.dacHatCur = arg; post(A("/reboot"), {}); say(Tr.t("settings.msg.rebooting")) }
                     else say(Tr.t("settings.audio.hat.setFailed"))
+                })
+            })
+            break
+        }
+        // DSI panel: same shape as hat_pick. Boot-time overlay, so confirm the
+        // reboot, post, and reboot. Picking the panel already in use does nothing.
+        case "dsi_pick": {
+            if (arg === cfg.dsiPanelCur) break
+            Ui.dialogs.confirm(Tr.t("settings.display.panel.rebootPrompt"), Tr.t("settings.controls.reboot"), false, function(go) {
+                if (!go) return
+                post(A("/set_display_panel"), { id: arg }, function(ok, d) {
+                    if (ok && d && d.success) { cfg.dsiPanelCur = arg; post(A("/reboot"), {}); say(Tr.t("settings.msg.rebooting")) }
+                    else say(Tr.t("settings.display.panel.setFailed"))
                 })
             })
             break

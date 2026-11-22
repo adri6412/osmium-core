@@ -302,6 +302,26 @@ async function applyHat(id) {
   waitForReboot();
 }
 
+// DSI touch panel (Raspberry Pi only): a hardware choice written into the boot
+// config.txt, so applying it reboots. Twin of the DAC HAT selector above.
+// dsiSupported hides the whole block on x86. id '' = no panel (auto-detect/HDMI).
+const dsiSupported = ref(false); const dsiPanels = ref([]); const currentPanel = ref('');
+async function loadDisplayPanels() {
+  const r = await api.sys('display_panels');
+  if (r.ok) { dsiSupported.value = r.data.supported === true; dsiPanels.value = r.data.panels || []; currentPanel.value = r.data.current || ''; }
+}
+async function applyPanel(id) {
+  if (id === currentPanel.value) return;
+  if (!confirm(t('settings.display.panel.rebootPrompt'))) return;
+  const r = await api.sysPost('display_panel', { id });
+  const ok = r.ok && r.data.success !== false;
+  say(bodyMsg(r, t('settings.display.panel.saved')), !ok);
+  if (!ok) { loadDisplayPanels(); return; }
+  currentPanel.value = id;
+  await api.sysPost('reboot', {});
+  waitForReboot();
+}
+
 // ── Audio → Advanced: the rest of squeezelite's command line ──────
 // api_server.py get/set/reset_squeezelite_conf; the model lives in
 // hifi_squeezelite.py and /etc/default/squeezelite is rendered from it, so
@@ -2018,7 +2038,7 @@ async function saveBackupScheduled(v) {
 
 onMounted(async () => {
   loadNet(); loadIpv4(); loadAudio(); loadDsp(); loadFir(); loadToggles(); loadShell(); loadLms(); loadLyrion(); loadSkin(); loadPlayback();
-  loadMode(); loadEngine(); loadPlayerEnabled(); loadUiRes(); loadUiScreens(); loadUiRefresh(); loadUiRotation(); loadPointer(); loadTimezone(); loadVuMeter(); loadVuStyle(); loadVuStore(false); loadNpAnimation(); loadAnimStore(false); loadAutoExpand(); loadChannel(); checkAll(); resumePlanIfRunning(); loadBackups(); loadTailscale();
+  loadMode(); loadEngine(); loadPlayerEnabled(); loadUiRes(); loadUiScreens(); loadUiRefresh(); loadUiRotation(); loadPointer(); loadTimezone(); loadVuMeter(); loadVuStyle(); loadVuStore(false); loadNpAnimation(); loadAnimStore(false); loadAutoExpand(); loadChannel(); checkAll(); resumePlanIfRunning(); loadBackups(); loadTailscale(); loadDisplayPanels();
   timezonePoll = setInterval(pollTimezone, 10000);
   // Tell the global UpdateProgressOverlay (mounted in App.vue) that this page
   // owns the OTA modal while it's open, so the two never render on top of
@@ -3112,6 +3132,20 @@ function drvStartPoll() {
           </button>
         </div>
       </template>
+
+      <!-- DSI touch panel (Raspberry Pi only). Loads a device-tree overlay at
+           boot, so applying it reboots. Shown even in headless mode: you pick the
+           panel first, reboot, and the display comes up. Hidden on x86. -->
+      <div v-if="dsiSupported" style="margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+        <label>{{ t('settings.display.panel.title') }}</label>
+        <p class="sub" style="margin-top: 4px;">{{ t('settings.display.panel.help') }}</p>
+        <div class="net between" @click="applyPanel('')">
+          <span>{{ t('settings.display.panel.none') }}</span><span class="check" v-if="currentPanel === ''">✓</span>
+        </div>
+        <div v-for="p in dsiPanels" :key="p.id" class="net between" @click="applyPanel(p.id)">
+          <span>{{ p.name }}<span class="muted" v-if="p.detail" style="margin-left: 8px; font-size: 0.85em;">{{ p.detail }}</span></span><span class="check" v-if="p.id === currentPanel">✓</span>
+        </div>
+      </div>
 
       <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
         <p class="sub">{{ t('settings.display.playerLabel') }}</p>

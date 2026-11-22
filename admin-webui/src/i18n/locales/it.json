@@ -1066,6 +1066,13 @@
     },
     "display": {
       "currentLabel": "Attuale",
+      "panel": {
+        "title": "Display touch DSI",
+        "help": "Seleziona il pannello DSI collegato al connettore display della scheda. L'overlay device-tree viene caricato all'avvio, quindi applicarlo riavvia il player. Scegli \"Nessuno / auto\" per il display ufficiale Raspberry Pi (rilevato in automatico) o per il solo HDMI.",
+        "none": "Nessuno / auto",
+        "rebootPrompt": "Il player deve riavviarsi per caricare il pannello selezionato. Continuare?",
+        "saved": "Pannello DSI salvato, riavvio…"
+      },
       "headless": "Headless (senza schermo)",
       "onscreen": "Interfaccia su schermo",
       "switchToOnscreen": "Riaccendi l'interfaccia su schermo",

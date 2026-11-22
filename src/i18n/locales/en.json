@@ -1128,6 +1128,15 @@
       "reverted": "No confirmation received — reverted to the native refresh rate.",
       "failed": "Could not change the refresh rate."
     },
+    "display": {
+      "panel": {
+        "title": "DSI touch display",
+        "help": "Select the DSI panel connected to the board's display connector. The driver is loaded at boot, so applying it reboots. Pick \"None / auto\" for the official Raspberry Pi display (auto-detected) or HDMI only.",
+        "none": "None / auto-detect",
+        "rebootPrompt": "The panel is applied on reboot. Reboot now?",
+        "setFailed": "Could not apply the DSI panel."
+      }
+    },
     "displayMode": {
       "help": "Choose whether this device runs with the on-screen touchscreen interface or headless (no screen), controlled remotely from the Android companion app, the Lyrion web interface (port 9000) or the music sources page (port 8080).",
       "currentGui": "On-screen interface (touchscreen)",

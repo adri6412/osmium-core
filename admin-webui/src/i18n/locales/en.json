@@ -1066,6 +1066,13 @@
     },
     "display": {
       "currentLabel": "Current",
+      "panel": {
+        "title": "DSI touch display",
+        "help": "Select the DSI panel connected to the board's display connector. The device-tree overlay is loaded at boot, so applying it reboots the player. Pick \"None / auto\" for the official Raspberry Pi display (auto-detected) or HDMI only.",
+        "none": "None / auto-detect",
+        "rebootPrompt": "The player must reboot to load the selected panel. Continue?",
+        "saved": "DSI panel saved, rebooting…"
+      },
       "headless": "Headless (no screen)",
       "onscreen": "On-screen interface",
       "switchToOnscreen": "Turn the on-screen interface back on",
