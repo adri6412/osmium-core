@@ -86,7 +86,7 @@ def _lang():
 #  The actual download/swap/restart is done as root by the helper
 #  script; here we only check GitHub Releases and kick it off.
 # ──────────────────────────────────────────────────────────────────
-OTA_REPO = os.environ.get('HIFI_OTA_REPO', 'adri6412/hifi-media-player')
+OTA_REPO = os.environ.get('HIFI_OTA_REPO', 'adri6412/osmium-sound-x86')
 # Static release manifest published to a CDN (NOT subject to the
 # api.github.com 60-req/hour rate limit). The release workflow writes
 # `ota/latest-<channel>.json` mirroring the GitHub release object to the
@@ -11266,7 +11266,7 @@ def api_close_and_restart():
 # image build. The web admin shows all of it; the on-screen page the summary.
 CREDITS_FILE = '/usr/lib/osmium/credits.json'
 THIRD_PARTY_FILE = '/opt/hifi-qt/locales/third_party.json'   # native-ui-qt/ci/build-payload.sh, from src/data/thirdPartyNotices.js
-PROJECT_SOURCE_URL = 'https://github.com/adri6412/osmium-sound'
+PROJECT_SOURCE_URL = 'https://github.com/adri6412/osmium-sound-x86'
 
 def get_credits():
     def load(path, default):
