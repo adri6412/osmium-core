@@ -16,6 +16,12 @@ Item {
     // copertina del CD), non una tessera-menu, anche se l'euristica
     // pluginAlbumList non scatta (un solo disco → troppo pochi item)
     property bool inCdPlayer: false
+    // #159: where the remote spotlight goes when pressing Up from the top row of
+    // the grid. The grid's view selector sits in the top-right corner, outside
+    // the 45° cone of Nav.pick(), so the spatial search can never reach it and
+    // the focus gets stuck at the top of the Favourites grid. Browser points this
+    // at the view-selector tap when it is shown; null leaves the spatial default.
+    property Item gridUpTarget: null
     signal rowTap(int row, bool onPlay)
     signal rowMinus(int row)                                   // "–" on a recommended card: blacklist its artist
     signal rowLongPress(int row, real x, real y)
@@ -493,6 +499,16 @@ Item {
             RowTap {
                 id: cardTap
                 flick: gridView; tap: 0.98; holdRing: true
+                // #159: from the top row, Up jumps straight to the view selector
+                // (Nav.pick's 45° cone can't reach that top-right corner). Other
+                // rows and directions fall through to the normal spatial search.
+                function navKey(dir) {
+                    if (dir === "up" && card.index < root.cols
+                            && root.gridUpTarget && root.gridUpTarget.visible) {
+                        Nav.focus(root.gridUpTarget); return true
+                    }
+                    return false
+                }
                 onClicked: (m) => {
                     if (card.minusBtn && Math.abs(m.x - card.minusCx) <= 18 && Math.abs(m.y - card.minusCy) <= 18) { root.rowMinus(card.index); return }
                     root.rowTap(card.index, card.playBtn && Math.abs(m.x - card.playCx) <= 18 && Math.abs(m.y - card.playCx) <= 18)
