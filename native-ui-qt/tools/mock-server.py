@@ -15,7 +15,7 @@ STATE = {
     "vu": os.environ.get("MOCK_VU", "1") != "0", "vu_style": os.environ.get("MOCK_VU_STYLE", "classic"),
     "np_animation": os.environ.get("MOCK_NP_ANIMATION", "none"), "autoexpand": 0, "ota": {"state": "idle"}, "lang": "it",
     "display_mode": "gui", "ui_resolution": "auto", "ui_screens": "mirror", "ui_rotation": 0, "ui_refresh": "native", "pointer": True, "ssh": False, "player_enabled": True,
-    "lms_mode": "local", "lms_host": "", "tz": "Europe/Rome", "device_name": "Osmium", "ota_channel": "dev", "lyrion_channel": "release",
+    "lms_mode": "local", "lms_host": "", "lms_port": 9000, "tz": "Europe/Rome", "device_name": "Osmium", "ota_channel": "dev", "lyrion_channel": "release",
     "audio": "hw:CARD=DAC,DEV=0", "shell_user": "", "pldir": "/srv/music/playlist", "skin": "osmium", "fmt": {"state": "idle"},
     "install": {"state": "idle"}, "cd": {"no_disc": True}, "cdrip": {"state": "idle"},
     "bt_remotes": {"available": True, "supported": True, "adapter": True, "remotes": [], "found": []},
@@ -671,7 +671,7 @@ class H(BaseHTTPRequestHandler):
                                  "network_interfaces": [{"name": "eth0", "address": "192.168.0.133", "active": True}, {"name": "wlan0", "address": "192.168.0.140", "active": False}]},
                 "/pointer_status": {"enabled": STATE["pointer"], "available": True}, "/ssh_status": {"enabled": STATE["ssh"], "available": True, "active": STATE["ssh"]},
                 "/player_enabled": {"enabled": STATE["player_enabled"]},
-                "/lms_role": {"mode": STATE["lms_mode"], "host": STATE["lms_host"]}, "/timezone": {"timezone": STATE["tz"]},
+                "/lms_role": {"mode": STATE["lms_mode"], "host": STATE["lms_host"], "port": STATE["lms_port"]}, "/timezone": {"timezone": STATE["tz"]},
                 "/timezones": {"timezones": ["Europe/Rome", "Europe/London", "Europe/Berlin", "Europe/Paris", "UTC", "America/New_York", "Asia/Tokyo"]},
                 "/device_name": {"name": STATE["device_name"]}, "/ota_channel": {"channel": STATE["ota_channel"], "channels": ["prod", "dev", "alpha"]},
                 "/lyrion_channel": {"channel": STATE["lyrion_channel"]},
@@ -890,7 +890,7 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/pointer_set": STATE["pointer"] = bool(data.get("enable", True))
             if u.path == "/ssh_set": STATE["ssh"] = bool(data.get("enable", False))
             if u.path == "/player_enabled": STATE["player_enabled"] = bool(data.get("enabled", True))
-            if u.path == "/lms_role": STATE["lms_mode"] = data.get("mode", "local"); STATE["lms_host"] = data.get("host", "")
+            if u.path == "/lms_role": STATE["lms_mode"] = data.get("mode", "local"); STATE["lms_host"] = data.get("host", ""); STATE["lms_port"] = int(data.get("port") or 9000)
             if u.path == "/timezone": STATE["tz"] = data.get("timezone", "UTC")
             if u.path == "/device_name": STATE["device_name"] = data.get("name", "Osmium")
             if u.path == "/ota_channel": STATE["ota_channel"] = data.get("channel", "prod")

@@ -864,6 +864,8 @@
         "follow": "Esterno (sulla mia rete)",
         "hostPlaceholder": "IP o nome, es. 192.168.1.50 o nas.local",
         "hostRequired": "Inserisci l'indirizzo IP o il nome del dispositivo da seguire.",
+        "portPlaceholder": "Porta (predefinita 9000)",
+        "portInvalid": "La porta deve essere un numero tra 1 e 65535.",
         "apply": "Applica",
         "rebootWarning": "Cambiare il server musicale richiede un riavvio per avere effetto. Riavviare ora?",
         "saved": "Server Lyrion aggiornato.",

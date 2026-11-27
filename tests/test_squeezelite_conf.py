@@ -842,7 +842,7 @@ class TestApiServer(unittest.TestCase):
         self.assertTrue(self.api.set_lms_role('follow', '192.168.1.50')['success'])
         self.assertIn(' -s 192.168.1.50 ', self.sb.args())
         self.assertIn(' -n Salotto ', self.sb.args())    # the two fields do not clobber each other
-        self.assertEqual(self.api.get_lms_role(), {'mode': 'follow', 'host': '192.168.1.50'})
+        self.assertEqual(self.api.get_lms_role(), {'mode': 'follow', 'host': '192.168.1.50', 'port': 9000})
         self.assertTrue(self.api.set_lms_role('local', None)['success'])
         self.assertIn(' -s 127.0.0.1 ', self.sb.args())
 

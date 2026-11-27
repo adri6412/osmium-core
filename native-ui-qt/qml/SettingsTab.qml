@@ -24,7 +24,7 @@ Item {
     // CD ripping: the offset field, as typed
     property string cdOffsetEdit: ""; property bool cdOffsetDirty: false
     property string sshUser: ""; property string sshPass: ""
-    property string nameEdit: ""; property string hostEdit: ""
+    property string nameEdit: ""; property string hostEdit: ""; property string portEdit: ""
     property string pendAct: ""; property string pendArg: ""
     property int countdown: 0
     // Display -> Rotation: a new rotation turns the screen at once and is only
@@ -331,7 +331,7 @@ Item {
         }
         // Settings → CD ripping (sources_server /api/cd/settings, hifi_cdrip.py)
         property var cdrip: ({ loaded: false, settings: {}, drive: {}, target_ok: false, targets: [], ripping: false, choices: {} })
-        property string lmsMode: "local"; property string lmsHost: ""; property string playerName: ""; property string lyrionChannel: "release"
+        property string lmsMode: "local"; property string lmsHost: ""; property string lmsPort: "9000"; property string playerName: ""; property string lyrionChannel: "release"
         property string lmsSkin: "unset"; property string skinState: ""; property string skinMsg: ""
         property string lyrInstalled: ""; property var lyrChVer: ["", "", ""]; property string lyrStatus: ""; property int lyrPct: 0; property bool lyrRunning: false
         property var disc: []                                       // [{name, ip}]
@@ -559,7 +559,7 @@ Item {
                         run_on_boot: d.run_on_boot !== false,
                         all_sources: d.all_sources || [], lastfm: String(d.lastfm || "off"), st: st, blocked: rec.blocked || [] }
             })
-            get(api("/lms_role"), function(d) { lmsMode = str(d, "mode", "local"); lmsHost = str(d, "host") })
+            get(api("/lms_role"), function(d) { lmsMode = str(d, "mode", "local"); lmsHost = str(d, "host"); lmsPort = str(d, "port", "9000") })
             get(api("/player_name"), function(d) { playerName = str(d, "name") })
             get(api("/lyrion_channel"), function(d) { lyrionChannel = str(d, "channel", "release") })
             get(api("/lyrion_update/check"), function(d) {
@@ -2022,6 +2022,8 @@ Item {
             if (!cfg.disc.length) help("settings.multiroom.role.noneFound", 12)
             var hv = hostEdit || cfg.lmsHost
             input(Tr.t("settings.multiroom.role.hostPlaceholder"), hv, "lms_host", false).hh = 50
+            var pv = portEdit || cfg.lmsPort
+            input(Tr.t("settings.multiroom.role.portPlaceholder"), pv, "lms_port", false).hh = 50
             var app = action(Tr.t("settings.multiroom.role.apply"), "lms_apply", "gold"); app.bold = true; app.hh = 44; app.dim = !hv
         }
         sep()
@@ -2398,7 +2400,7 @@ Item {
         // applies to this device's own server and /material/ may not even
         // exist on the other one (the root always serves its default skin).
         var url = cfg.lmsHost
-            ? "http://" + cfg.lmsHost + ":9000"
+            ? "http://" + cfg.lmsHost + ":" + (cfg.lmsPort || "9000")
             : "http://" + ip + ":9000/material/" + (cfg.lmsSkin === "osmium" ? "?defaultTheme=dark/Osmium" : "")
         if (!cfg.pairToken) { note(Tr.t("settings.webRemote.generatingToken"), "dark"); code(url); return }
         qr(JSON.stringify({ lms: url, api: ip + ":8080", token: cfg.pairToken }), Tr.t("settings.webRemote.scanHint"))
@@ -2739,6 +2741,7 @@ Item {
         case "ssh_pass": sshPass = text; break
         case "player_name": nameEdit = text; break
         case "lms_host": hostEdit = text; break
+        case "lms_port": portEdit = text; break
         case "sq_extra": sqExtraEdit = text; sqExtraDirty = true; break
         case "rec_key": recKeyEdit = text; break
         case "cd_offset": cdOffsetEdit = text; cdOffsetDirty = true; break
@@ -3175,7 +3178,7 @@ Item {
             if (Ui.cdrip) Ui.cdrip.ripNow(function(r) { if (r !== "ok" && Ui.toast) Ui.toast.say("disc", Tr.t("settings.cdRip.ripNow_" + r)) })
             break
         case "lms_skin": post(S("/api/lms_skin"), { skin: arg }); cfg.lmsSkin = arg; say(Tr.t("settings.lyrion.skinApplying")); break
-        case "wiz_field": case "pick_new": case "ssh_user": case "ssh_pass": case "player_name": case "lms_host": case "sq_extra": case "cd_offset":
+        case "wiz_field": case "pick_new": case "ssh_user": case "ssh_pass": case "player_name": case "lms_host": case "lms_port": case "sq_extra": case "cd_offset":
         case "rec_key": case "zone_name": case "zone_new_name": return
         case "lms_role":
             if (arg !== "local") { cfg.lmsMode = "follow"; cfg.loadDiscover(); break }
@@ -3205,15 +3208,17 @@ Item {
         case "lms_apply": {
             var h = hostEdit || cfg.lmsHost
             if (!h) { say(Tr.t("settings.multiroom.role.hostRequired"), true); return }
-            if (h === cfg.lmsHost) { say(Tr.t("settings.multiroom.role.saved")); return }
+            var p = parseInt(portEdit || cfg.lmsPort || "9000", 10)
+            if (!(p >= 1 && p <= 65535)) { say(Tr.t("settings.multiroom.role.portInvalid"), true); return }
+            if (h === cfg.lmsHost && String(p) === String(cfg.lmsPort)) { say(Tr.t("settings.multiroom.role.saved")); return }
             askRoleReboot(function() {
-                post(A("/lms_role"), { mode: "follow", host: h }, function(ok, d) {
+                post(A("/lms_role"), { mode: "follow", host: h, port: p }, function(ok, d) {
                     if (!ok || (d && d.success === false)) {
                         say((d && d.message) || Tr.t("settings.multiroom.role.failed"), true)
                         return
                     }
                     Api.refreshLmsHost()
-                    cfg.lmsHost = h; cfg.lmsMode = "follow"
+                    cfg.lmsHost = h; cfg.lmsPort = String(p); cfg.lmsMode = "follow"
                     say(Tr.t("settings.msg.rebooting"))
                     post(A("/reboot"), {})
                 })

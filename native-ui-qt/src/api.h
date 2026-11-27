@@ -33,7 +33,7 @@ public:
     QString host() const { return m_host; }
     QString apiBase() const { return "http://" + m_host + ":8000"; }
     QString srcBase() const { return "http://" + m_host + ":8080"; }
-    QString lmsBase() const { return "http://" + m_lmsHost + ":9000"; }
+    QString lmsBase() const { return "http://" + m_lmsHost + ":" + QString::number(m_lmsPort); }
 
     // Resolve a Lyrion icon/cover string (a menu item's icon-id/image/cover) to
     // a URL our Image can load: an absolute http on 127.0.0.1/localhost is
@@ -86,6 +86,7 @@ public:
 private:
     QString m_host;
     QString m_lmsHost;              // loopback, o l'apparecchio che si segue
+    int m_lmsPort = 9000;           // porta HTTP di Lyrion (9000 in locale, custom se si segue)
     QTimer m_lmsPoll;               // il ruolo si cambia anche dal web: si ricontrolla
     bool m_lmsResolved = false;     // true once /lms_role has answered at least once
     QNetworkAccessManager m_nam;

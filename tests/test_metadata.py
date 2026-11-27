@@ -155,6 +155,24 @@ class TextTests(unittest.TestCase):
             self.assertEqual(hm.lms_host_from_squeezelite(path), '127.0.0.1')
             self.assertEqual(hm.lms_host_from_squeezelite(os.path.join(tmp, 'missing')), '127.0.0.1')
         finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_lms_port(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, 'squeezelite')
+            with open(path, 'w') as f:
+                f.write("ARGS='-o default -s nas.local -n Osmium'\nLMS_HTTP_PORT='9001'\n")
+            self.assertEqual(hm.lms_port_from_squeezelite(path), 9001)
+            with open(path, 'w') as f:
+                f.write("ARGS='-o default -s nas.local -n Osmium'\n")   # no port line
+            self.assertEqual(hm.lms_port_from_squeezelite(path), 9000)
+            self.assertEqual(hm.lms_port_from_squeezelite(os.path.join(tmp, 'missing')), 9000)
+            # out-of-range falls back to 9000
+            with open(path, 'w') as f:
+                f.write("ARGS='-o default -n Osmium'\nLMS_HTTP_PORT='70000'\n")
+            self.assertEqual(hm.lms_port_from_squeezelite(path), 9000)
+        finally:
             shutil.rmtree(tmp)
 
 

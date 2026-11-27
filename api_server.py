@@ -3399,6 +3399,13 @@ def _current_lms_host():
     except Exception:
         return '127.0.0.1'
 
+def _current_lms_port():
+    """Lyrion's HTTP port for the server this box follows (9000 by default)."""
+    try:
+        return int(_sq_load().get('http_port') or 9000)
+    except Exception:
+        return 9000
+
 # A DNS name for an external Lyrion server (nas.lan, lms.example.com,
 # osmium.local). Letters, digits and hyphens per label only: the name ends up
 # inside squeezelite's ARGS='...' line, so no quote, space or shell character
@@ -3486,9 +3493,10 @@ def _is_own_address(addr):
 
 def get_lms_role():
     host = _current_lms_host()
+    port = _current_lms_port()
     if host == '127.0.0.1':
-        return {'mode': 'local', 'host': None}
-    return {'mode': 'follow', 'host': host}
+        return {'mode': 'local', 'host': None, 'port': port}
+    return {'mode': 'follow', 'host': host, 'port': port}
 
 def _set_local_lyrion_enabled(enable):
     """Start+enable, or stop+disable, this device's OWN Lyrion Music Server.
@@ -3525,9 +3533,26 @@ def _set_local_lyrion_enabled(enable):
         log.exception("set_lms_role: systemctl %s %s failed", action[0], LYRION_UNIT)
         return False
 
-def set_lms_role(mode, host):
+def _coerce_lms_port(port):
+    """None/'' → 9000; a 1–65535 int (or its string) → that int; else None."""
+    if port is None or port == '':
+        return 9000
+    try:
+        port = int(str(port).strip())
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
+
+def set_lms_role(mode, host, port=None):
+    target_port = _coerce_lms_port(port)
+    if target_port is None:
+        return {'success': False, 'code': 'lms.invalidPort',
+                'message': _t('lms.invalidPort', _lang(), port=port)}
     if mode == 'local':
         target = '127.0.0.1'
+        # The on-box Lyrion always answers on 9000; a custom port only makes
+        # sense for an external server one follows.
+        target_port = 9000
     elif mode == 'follow':
         host = host.strip().rstrip('.').lower() if isinstance(host, str) else host
         if not (_valid_ipv4(host) or _valid_hostname(host)):
@@ -3565,7 +3590,7 @@ def set_lms_role(mode, host):
     # after the move those players convert on the new server instead.
     old_host = _current_lms_host()
     try:
-        _sq_update(lambda model: model.update(server=target))
+        _sq_update(lambda model: model.update(server=target, http_port=target_port))
     except Exception:
         log.exception("set_lms_role: write config failed")
         return {'success': False, 'code': 'lms.sqConfigMissing',
@@ -7559,13 +7584,16 @@ def _current_real_dac():
 # companion app) triggered the change.
 LMS_RPC_URL = 'http://127.0.0.1:9000/jsonrpc.js'
 
-def _lms_rpc(host, playerid, command, timeout=5):
-    """A jsonrpc.js slim.request to the Lyrion on `host` (port 9000). `host`
-    is the server a player follows -- 127.0.0.1 for the local Lyrion, or a
-    remote Osmium / third-party server for the built-in player when it is set
-    to follow one. Raises on a transport error; the caller decides what that
-    means."""
-    url = f'http://{host}:9000/jsonrpc.js'
+def _lms_rpc(host, playerid, command, timeout=5, port=None):
+    """A jsonrpc.js slim.request to the Lyrion on `host`. `host` is the server a
+    player follows -- 127.0.0.1 for the local Lyrion, or a remote Osmium /
+    third-party server for the built-in player when it is set to follow one.
+    `port` is Lyrion's HTTP port; None → the followed server's configured port
+    (9000 by default). Raises on a transport error; the caller decides what
+    that means."""
+    if port is None:
+        port = _current_lms_port()
+    url = f'http://{host}:{int(port)}/jsonrpc.js'
     payload = json.dumps({'id': 1, 'method': 'slim.request', 'params': [playerid, command]}).encode()
     req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -12034,7 +12062,7 @@ def _lms_web(path, method='GET', form=None, follow=True, timeout=12):
     settings/auth pages are HTML and want form-urlencoded bodies. follow=False
     keeps a 3xx so its Location header can be read."""
     host = _current_lms_host() or '127.0.0.1'
-    url = f'http://{host}:9000/{path.lstrip("/")}'
+    url = f'http://{host}:{_current_lms_port()}/{path.lstrip("/")}'
     data = None
     headers = {}
     if form is not None:
@@ -12201,7 +12229,7 @@ def api_lms_role():
 @app.route('/lms_role', methods=['POST'])
 def api_set_lms_role():
     data = request.get_json(silent=True) or {}
-    return jsonify(set_lms_role(data.get('mode'), data.get('host')))
+    return jsonify(set_lms_role(data.get('mode'), data.get('host'), data.get('port')))
 
 @app.route('/player_name', methods=['GET'])
 def api_player_name():

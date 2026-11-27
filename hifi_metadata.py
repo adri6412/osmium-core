@@ -1649,6 +1649,21 @@ def lms_host_from_squeezelite(path=SQUEEZELITE_DEFAULT):
     return host.split(':')[0] if host.count(':') == 1 else host
 
 
+def lms_port_from_squeezelite(path=SQUEEZELITE_DEFAULT):
+    """Lyrion's HTTP port, from the LMS_HTTP_PORT line hifi_squeezelite writes
+    next to ARGS in the same file; 9000 when unset or unreadable."""
+    try:
+        with open(path) as f:
+            content = f.read()
+    except OSError:
+        return 9000
+    m = re.search(r"""LMS_HTTP_PORT=(['"]?)(\d{1,5})\1""", content)
+    if not m:
+        return 9000
+    port = int(m.group(2))
+    return port if 1 <= port <= 65535 else 9000
+
+
 def parse_raw_tags(raw):
     """Lyrion's `tags track_id:` dump (Audio::Scan keys: MUSICBRAINZ_ALBUMID
     in Vorbis comments, "MUSICBRAINZ ALBUM ID" in ID3 TXXX, "MusicBrainz Album
@@ -1715,7 +1730,7 @@ class Lyrion:
         url = self._url or os.environ.get('HIFI_META_LMS_URL') or ''
         if not url:
             host = lms_host_from_squeezelite()
-            url = f'http://{host}:9000'
+            url = f'http://{host}:{lms_port_from_squeezelite()}'
         url = url.rstrip('/')
         if url.endswith('/jsonrpc.js'):
             url = url[:-len('/jsonrpc.js')]

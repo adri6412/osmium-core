@@ -945,14 +945,16 @@ async function setTailscale(v) {
 // mode/host are what the form shows (the External button and the address
 // field write to them before anything is applied); savedMode/savedHost are
 // what the device actually runs, so "did this really change?" can be asked.
-const lms = reactive({ mode: 'local', host: '', servers: [], savedMode: 'local', savedHost: '' });
+const lms = reactive({ mode: 'local', host: '', port: 9000, servers: [], savedMode: 'local', savedHost: '', savedPort: 9000 });
 async function loadLms() {
   const r = await api.sys('lms_role');
   if (r.ok) {
     lms.mode = r.data.mode || 'local';
     lms.host = r.data.host || '';
+    lms.port = r.data.port || 9000;
     lms.savedMode = lms.mode;
     lms.savedHost = lms.host;
+    lms.savedPort = lms.port;
   }
 }
 // This box's own Lyrion answers the discovery broadcast too, and following it
@@ -973,12 +975,13 @@ async function discoverLms() {
 // up front, and skipped entirely when the choice is already the live one.
 async function applyLmsRole(mode, hostArg) {
   const target = mode === 'follow' ? (hostArg || lms.host || null) : null;
+  const targetPort = mode === 'follow' ? (Number(lms.port) || 9000) : 9000;
   const unchanged = mode === 'local'
     ? lms.savedMode !== 'follow'
-    : (lms.savedMode === 'follow' && target === lms.savedHost);
+    : (lms.savedMode === 'follow' && target === lms.savedHost && targetPort === lms.savedPort);
   if (unchanged) { lms.mode = mode; return; }
   if (!confirm(t('settings.lyrion.rebootWarning'))) return;
-  const r = await api.sysPost('lms_role', { mode, host: target });
+  const r = await api.sysPost('lms_role', { mode, host: target, port: targetPort });
   const ok = r.ok && r.data.success !== false;
   say(bodyMsg(r, t('settings.lyrion.roleUpdated')), !ok);
   if (!ok) { loadLms(); return; }
@@ -1104,7 +1107,7 @@ async function pickSkin(v) {
 // the skin choice only applies to this device's own server and /material/
 // need not exist on the other one (a server's root serves its default skin).
 const lmsUrl = computed(() => {
-  if (lms.savedMode === 'follow' && lms.savedHost) return `http://${lms.savedHost}:9000`;
+  if (lms.savedMode === 'follow' && lms.savedHost) return `http://${lms.savedHost}:${lms.savedPort || 9000}`;
   if (skin.choice === 'osmium') return `http://${host}:9000/material/?defaultTheme=dark/Osmium`;
   if (skin.choice === 'material') return `http://${host}:9000/material/`;
   return `http://${host}:9000`;
@@ -2885,6 +2888,8 @@ function drvStartPoll() {
         <p class="sub" style="margin-top: 12px;">{{ t('settings.lyrion.externalHint') }}</p>
         <div class="row">
           <input v-model="lms.host" :placeholder="t('settings.lyrion.serverIpPlaceholder')" />
+          <input v-model="lms.port" type="number" min="1" max="65535" class="fit"
+                 style="max-width: 96px;" :placeholder="t('settings.lyrion.serverPortPlaceholder')" />
           <button class="secondary fit" @click="discoverLms">{{ t('settings.lyrion.search') }}</button>
           <button class="fit" @click="applyLmsRole('follow', lms.host)">{{ t('common.apply') }}</button>
         </div>

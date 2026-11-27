@@ -1918,7 +1918,8 @@ def provision_lyrion_mode_set():
                         'message': _wt('provision.notInProgress', _lang())}), 409
     data = request.get_json(silent=True) or {}
     body, status = _proxy(API_BASE, '/lms_role', method='POST',
-                          body={'mode': data.get('mode'), 'host': data.get('host')}, timeout=90)
+                          body={'mode': data.get('mode'), 'host': data.get('host'),
+                                'port': data.get('port')}, timeout=90)
     return jsonify(body), status
 
 
@@ -2797,11 +2798,17 @@ def _lyrion_base():
     if status != 200 or not isinstance(role, dict):
         return LYRION_BASE
     host = role.get('host')
+    try:
+        port = int(role.get('port') or 9000)
+    except (TypeError, ValueError):
+        port = 9000
+    if not 1 <= port <= 65535:
+        port = 9000
     # An IPv4 address or a DNS name (api_server validates both on save); the
     # character check keeps anything else out of the URL.
     if role.get('mode') == 'follow' and isinstance(host, str) \
             and re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?', host):
-        return f'http://{host}:9000'
+        return f'http://{host}:{port}'
     return LYRION_BASE
 
 
