@@ -375,7 +375,12 @@ Item {
             return
         }
         pageLoader.sourceComponent = null
-        Library.request(cur.view, cur.p1, cur.p2, cur.input)
+        // ask for item URLs when browsing a non-service plugin (radios, apps):
+        // an internet radio station only carries a favourite-able URL under
+        // want_url. Streaming services (curSvcKey set) are left alone, so their
+        // items keep being favourited/queued by item, not by a stream url.
+        Library.request(cur.view, cur.p1, cur.p2, cur.input,
+                        cur.view === LibraryModel.PluginItems && curSvcKey === "")
         // back to a list we had scrolled (cur.scroll, set in goView): restore
         // it once the rows land (onLoaded below); a fresh view starts at the top
         if (cur.scroll) pendingScroll = cur.scroll

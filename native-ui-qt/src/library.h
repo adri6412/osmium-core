@@ -90,7 +90,12 @@ public:
     //   Albums: p1 = artist_id; Tracks: p1 = album_id; Folders: p1 = folder_id;
     //   PlaylistTracks: p1 = playlist_id; PluginItems: p1 = comando, p2 = item_id;
     //   Menu: p1 = parametri dell'azione "go" (array), input = testo cercato.
-    Q_INVOKABLE void request(int view, const QVariant &p1 = QVariant(), const QVariant &p2 = QVariant(), const QString &input = QString());
+    // wantUrl: ask Lyrion for each plugin item's `url` (want_url:1), so an
+    // internet radio station browsed in non-menu mode carries a URL that can be
+    // saved as a favourite. QML passes it for radios/apps but NOT for streaming
+    // services, whose items are favourited/queued by `item` and must not fall
+    // back onto a stream url (see Browser.qml loadTop / curSvcKey).
+    Q_INVOKABLE void request(int view, const QVariant &p1 = QVariant(), const QVariant &p2 = QVariant(), const QString &input = QString(), bool wantUrl = false);
     Q_INVOKABLE void clear();
     Q_INVOKABLE QVariantMap get(int row) const;
     Q_INVOKABLE int letterFirst(const QString &letter) const;     // prima riga con quella lettera, -1
