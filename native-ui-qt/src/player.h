@@ -18,6 +18,16 @@ class Player : public QObject {
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
     Q_PROPERTY(QString playerName READ playerName NOTIFY connectedChanged)
     Q_PROPERTY(QString playerId READ playerId NOTIFY connectedChanged)
+    // Perché non si è connessi, per un messaggio chiaro invece dello spinner
+    // infinito. Alimentate da /own_player_status (lato api_server, per MAC):
+    //   serverReachable      il Lyrion seguito risponde;
+    //   ownPlayerMissing     risponde, ma il nostro player non è su di esso
+    //                        (spostato altrove da Lyrion, o non ancora partito);
+    //   playerProcessDown    squeezelite non è acceso (player non partito, es.
+    //                        crash-loop su output non apribile) vs migrato.
+    Q_PROPERTY(bool serverReachable READ serverReachable NOTIFY linkDiagChanged)
+    Q_PROPERTY(bool ownPlayerMissing READ ownPlayerMissing NOTIFY linkDiagChanged)
+    Q_PROPERTY(bool playerProcessDown READ playerProcessDown NOTIFY linkDiagChanged)
     // The device's own player (matched by name) as opposed to the one being
     // driven: the user may pick another player on the same Lyrion (#99).
     Q_PROPERTY(QString ownPlayerId READ ownPlayerId NOTIFY playerChanged)
@@ -109,6 +119,9 @@ public:
     bool connected() const { return m_connected; }
     QString playerName() const { return m_playerName; }
     QString playerId() const { return m_playerId; }
+    bool serverReachable() const { return m_serverReachable; }
+    bool ownPlayerMissing() const { return m_ownPlayerMissing; }
+    bool playerProcessDown() const { return m_playerProcessDown; }
     QString ownPlayerId() const { return m_ownId; }
     QString ownPlayerName() const { return m_ownName; }
     bool isOwn() const { return m_pinnedId.isEmpty(); }
@@ -205,6 +218,10 @@ public:
     // Testi del brano corrente: cb(text) con "" se assenti.
     Q_INVOKABLE void lyrics(const QJSValue &cb);
     // Rilegge subito lo stato.
+    // Recupero dall'overlay "il player non è su questo server": riporta il
+    // player sul Lyrion locale (set_lms_role('local') ri-esegue squeezelite,
+    // che si riconnette a 127.0.0.1). cb(ok) opzionale.
+    Q_INVOKABLE void bringPlayerHome(const QJSValue &cb = QJSValue());
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void refreshPrefs();
     Q_INVOKABLE void refreshSettings();
@@ -212,6 +229,7 @@ public:
 
 signals:
     void connectedChanged();
+    void linkDiagChanged();       // perché non si è connessi (diagnostica overlay)
     void playerChanged();         // the player being driven, or our own, changed
     void metaChanged();
     void artworkChanged();
@@ -230,10 +248,12 @@ signals:
 
 private:
     void findPlayer();
+    void pollOwnStatus();           // /own_player_status: perché il player non c'è
     void switchTo(const QString &id, const QString &name);   // drive this player from now on
     void fetchLocalName();          // come ci chiamiamo su Lyrion (-n di squeezelite)
     void onLmsHostChanged();        // si e' passati a un altro Lyrion: si ricomincia
     void pollStatus();
+    void refreshGroupPlayState(const QString &master);  // sync slave: transport lives on the master
     void pollPrefs();
     void pollSettings();
     void pollUsb();
@@ -259,6 +279,10 @@ private:
     int m_playSeq = 0;
 
     bool m_connected = false;
+    // diagnostica del mancato collegamento (vedi le proprietà omonime); parte
+    // "server raggiungibile" per non lampeggiare all'avvio prima della risposta
+    bool m_serverReachable = true, m_ownPlayerMissing = false, m_playerProcessDown = false;
+    qint64 m_lastOwnStatus = 0;
     QString m_playerName, m_playerId, m_localName;
     // #99: the player in use was picked WITHOUT matching our own name (the
     // name was not known yet, or our squeezelite had not registered with
@@ -282,6 +306,12 @@ private:
     double m_sampleRate = 0, m_elapsed = 0, m_duration = 0;
     bool m_playing = false;
     bool m_power = true;
+    // sync: a slave reports its OWN status as stop/power=0 even while the group
+    // plays, so the real transport is cached from the group master (see
+    // refreshGroupPlayState). Starts "on" so a freshly-seen slave does not blink
+    // off before the master answers.
+    bool m_groupPlaying = false, m_groupPower = true;
+    qint64 m_lastGroupPoll = 0;
     int m_volume = 0, m_shuffle = 0, m_repeat = 0, m_sleepSecs = 0, m_index = 0, m_total = 0;
     int m_ledMode = 0;
     // /signal_path's verdict on what plays now (bitperfect, converted,
