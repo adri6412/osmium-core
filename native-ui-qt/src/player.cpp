@@ -31,6 +31,15 @@ Player::Player(QObject *parent) : QObject(parent) {
         qint64 now = m_clock.elapsed();
         if (!m_connected && now - m_lastStatus >= 2000) { m_lastStatus = now; findPlayer(); }
         else if (m_connected && !m_statusInFlight && (m_wantNow || now - m_lastStatus >= 1000)) { m_wantNow = false; m_lastStatus = now; pollStatus(); }
+        // Mentre non si è connessi, si chiede all'api_server PERCHÉ (server giù,
+        // player migrato, player non partito) per dare un messaggio chiaro
+        // nell'overlay invece dello spinner infinito. Appena connessi, i flag
+        // della diagnostica si azzerano.
+        if (!m_connected && now - m_lastOwnStatus >= 4000) { m_lastOwnStatus = now; pollOwnStatus(); }
+        if (m_connected && (m_ownPlayerMissing || !m_serverReachable || m_playerProcessDown)) {
+            m_serverReachable = true; m_ownPlayerMissing = false; m_playerProcessDown = false;
+            emit linkDiagChanged();
+        }
         // #99: on a stand-in player, keep looking for our own one until it is
         // there; and re-read our name while it is unknown or has changed
         if (m_connected && m_playerProvisional && now - m_lastFind >= 3000) findPlayer();
@@ -199,6 +208,44 @@ void Player::findPlayer() {
     }, 4000);
 }
 
+// Perché il nostro player non è sul Lyrion che seguiamo. L'api_server lo
+// riconosce per MAC (più affidabile del nome usato qui) e dice se il server
+// risponde, se il player è presente e se squeezelite è acceso. Alimenta solo
+// il messaggio dell'overlay: la scelta del player resta a findPlayer().
+void Player::pollOwnStatus() {
+    Api *api = Api::instance();
+    api->request("GET", api->apiBase() + "/own_player_status", {}, [this](bool ok, const QVariant &d, int) {
+        if (!ok) return;                      // api_server non raggiungibile: si lascia lo stato com'è
+        const QVariantMap m = d.toMap();
+        const bool reachable = m.value("server_reachable").toBool();
+        const bool present = m.value("own_player_present").toBool();
+        const bool sqRunning = m.value("squeezelite_running").toBool();
+        const bool missing = reachable && !present;
+        const bool down = missing && !sqRunning;
+        if (reachable != m_serverReachable || missing != m_ownPlayerMissing || down != m_playerProcessDown) {
+            m_serverReachable = reachable;
+            m_ownPlayerMissing = missing;
+            m_playerProcessDown = down;
+            emit linkDiagChanged();
+        }
+    }, 5000);
+}
+
+// Riporta il player su questo dispositivo: set_lms_role('local') riscrive
+// -s 127.0.0.1, riaccende il Lyrion locale e ri-esegue squeezelite, che si
+// riconnette qui; findPlayer lo ritrova e l'overlay sparisce.
+void Player::bringPlayerHome(const QJSValue &cb) {
+    QJSValue f = cb;
+    Api *api = Api::instance();
+    api->request("POST", api->apiBase() + "/lms_role",
+                 QByteArray("{\"mode\":\"local\"}"), [this, f](bool ok, const QVariant &d, int) mutable {
+        // si rilegge subito il motivo e si ritenta la connessione
+        m_lastOwnStatus = 0;
+        findPlayer();
+        if (f.isCallable()) callJs(f, {ok, d});
+    }, 15000);
+}
+
 // The player we drive from now on: everything that was cached for the old
 // one (artwork key above all) starts over, the status is fetched right away.
 void Player::switchTo(const QString &id, const QString &name) {
@@ -306,11 +353,22 @@ void Player::pollStatus() {
             m_playerProvisional = true;
         }
         bool playing = S(r, "mode") == "play";
+        // a player that does not report it counts as on
+        bool power = !r.contains("power") || r.value("power").toInt() != 0;
+        // sync: a player synced as a SLAVE always reports its own mode as stop
+        // and power 0 — the real transport state (playing, powered) lives only on
+        // the group master. Without this the kiosk driving a slave never saw
+        // "playing": the play button flipped back each poll and the VU meters
+        // stayed dim, even though the local squeezelite was actually playing.
+        // Take play/power from the master (cached, refreshed below); volume,
+        // queue, time and metadata stay the slave's own.
+        const QString syncMaster = S(r, "sync_master");
+        const bool syncedSlave = !syncMaster.isEmpty() && syncMaster != m_playerId;
+        if (syncedSlave) { playing = m_groupPlaying; power = m_groupPower; }
         // a play/pause sent AFTER this question: the answer is older than the
         // command and must not undo it (the next poll tells the truth)
         if (m_playCmdAt >= sentAt) playing = m_playing;
-        // a player that does not report it counts as on
-        bool power = !r.contains("power") || r.value("power").toInt() != 0;
+        if (syncedSlave) refreshGroupPlayState(syncMaster);
         double elapsed = r.value("time").toDouble(), duration = r.value("duration").toDouble();
         int volume = r.value("mixer volume").toInt(), index = r.value("playlist_cur_index").toInt();
         int total = r.value("playlist_tracks").toInt(), repeat = r.value("playlist repeat").toInt();
@@ -354,6 +412,29 @@ void Player::pollStatus() {
         if (track) emit trackChanged();
         updateArtwork();
         checkFavorite();
+    }, 8000);
+}
+
+// sync slave: fetch the group master's real transport (play/pause, power) and
+// cache it in m_groupPlaying/m_groupPower for pollStatus to apply. Also push the
+// change straight away so the play button and VU react without a poll of lag.
+void Player::refreshGroupPlayState(const QString &master) {
+    const qint64 now = m_clock.elapsed();
+    if (now - m_lastGroupPoll < 400) return;   // one poll already drives this; don't pile up
+    m_lastGroupPoll = now;
+    const qint64 sentAt = now;
+    Api::instance()->lmsRequest(master, {"status", "-", "0"}, [this, sentAt](bool ok, const QVariant &data, int) {
+        if (!ok) return;
+        QVariantMap r = data.toMap().value("result").toMap();
+        if (r.isEmpty()) return;
+        bool playing = S(r, "mode") == "play";
+        bool power = !r.contains("power") || r.value("power").toInt() != 0;
+        // a play/pause we sent more recently wins (optimistic guard, as in pollStatus)
+        if (m_playCmdAt >= sentAt) playing = m_playing;
+        m_groupPlaying = playing; m_groupPower = power;
+        bool ctl = playing != m_playing || power != m_power;
+        m_playing = playing; m_power = power;
+        if (ctl) { derive(); emit controlsChanged(); }
     }, 8000);
 }
 

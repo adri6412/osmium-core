@@ -126,6 +126,7 @@ const rcGroups = computed(() => {
 // go hunting through Settings to turn it off again.
 const lmsMode = ref('local');       // 'local' = internal | 'follow' = external
 const lmsHost = ref('');
+const lmsPort = ref(9000);          // Lyrion HTTP/web port (not slimproto 3483)
 const lmsServers = ref([]);
 const lmsBusy = ref(false);
 async function discoverLms() {
@@ -136,7 +137,7 @@ async function discoverLms() {
 }
 async function useExternalLms() {
   lmsBusy.value = true;
-  const r = await api.sysPost('lms_role', { mode: 'follow', host: lmsHost.value });
+  const r = await api.sysPost('lms_role', { mode: 'follow', host: lmsHost.value, port: Number(lmsPort.value) || 9000 });
   lmsBusy.value = false;
   if (!(r.ok && r.data.success !== false)) lyrionError.value = (r.data && r.data.message) || t('setup.lyrionExternalFailed');
   else lyrionError.value = '';
@@ -235,7 +236,7 @@ async function chooseSkin(v) {
 // there instead — bare root, since the skin choice above only applies to this
 // device's own server and /material/ need not exist on the other one.
 const lmsUrl = computed(() => {
-  if (lmsMode.value === 'follow' && lmsHost.value) return `http://${lmsHost.value}:9000`;
+  if (lmsMode.value === 'follow' && lmsHost.value) return `http://${lmsHost.value}:${Number(lmsPort.value) || 9000}`;
   if (skinChoice.value === 'osmium') return `http://${host.value}:9000/material/?defaultTheme=dark/Osmium`;
   if (skinChoice.value === 'material') return `http://${host.value}:9000/material/`;
   return `http://${host.value}:9000`;
@@ -391,7 +392,11 @@ function drvStartPoll() {
         </div>
         <p v-if="!lmsServers.length" class="muted">{{ lmsBusy ? t('setup.lyrionSearching') : t('setup.lyrionNoneFound') }}</p>
         <label>{{ t('setup.lyrionServerIp') }}</label>
-        <input v-model="lmsHost" placeholder="192.168.1.10 / nas.local" />
+        <div class="row">
+          <input v-model="lmsHost" placeholder="192.168.1.10 / nas.local" />
+          <input v-model="lmsPort" type="number" min="1" max="65535"
+                 style="max-width: 96px;" :placeholder="t('setup.lyrionServerPort')" />
+        </div>
         <div class="row" style="margin-top: 10px;">
           <button class="secondary" :disabled="lmsBusy" @click="discoverLms">{{ t('setup.lyrionSearch') }}</button>
           <button :disabled="lmsBusy || !lmsHost" @click="useExternalLms">{{ t('setup.lyrionUseExternal') }}</button>

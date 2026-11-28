@@ -157,12 +157,22 @@ DEFAULTS = {
     'output': 'default',
     'name': 'OsmiumSound',
     'server': '127.0.0.1',
+    # Lyrion's HTTP/JSON-RPC port. squeezelite's -s port is slimproto (3483),
+    # a different thing; this is the web/CLI port (default 9000) the metadata,
+    # web proxy and player-control requests talk to. Only meaningful when the
+    # box follows an external Lyrion whose HTTP is not on 9000.
+    'http_port': 9000,
     'mac': '',
     'model': 'Osmium',
     'dsd': 'auto',
     'dsd_delay_ms': 0,
     'max_rate': 0,
-    'volume': 'software',
+    # 'auto' (the default): use the card's hardware volume control when it has a
+    # usable one, software volume otherwise -- resolved at render time, so a fresh
+    # image with a USB DAC gets a working hardware volume on first boot without any
+    # SSH. 'hardware'/'software' are the user's explicit choice from the UI toggle
+    # and pin the behaviour. See effective_volume() / render_argv().
+    'volume': 'auto',
     'mixer': '',
     'alsa_buffer': 100,
     'alsa_periods': 3,
@@ -593,6 +603,35 @@ def mixer_controls(device, run=None):
         return []
 
 
+def effective_volume(m, output, mixer_fn=None):
+    """Resolve the model's `volume` to a concrete (volume, mixer) pair against the
+    card actually behind `output`. `mixer_fn` lists the card's usable volume
+    controls (mixer_controls by default; injectable for tests). The rules:
+
+      software            -> ('software', '')
+      hardware            -> keep the stored mixer if the card still has it; else
+                             re-pick the first control (the card changed under us);
+                             else fall back to software (no control to drive).
+      auto (the default)  -> hardware on the first control when the card has one,
+                             software otherwise.
+
+    So a fresh image with a USB DAC that exposes a volume control gets hardware
+    volume on its own, and we never emit `-V` for a control the card lacks."""
+    v = m.get('volume', 'auto')
+    if v == 'software':
+        return 'software', ''
+    controls = (mixer_fn or mixer_controls)(output)
+    if v == 'hardware':
+        stored = m.get('mixer') or ''
+        if stored and stored in controls:
+            return 'hardware', stored
+        if controls:
+            return 'hardware', controls[0]
+        return 'software', ''
+    # 'auto' (and any stray value normalize() would have made 'auto')
+    return ('hardware', controls[0]) if controls else ('software', '')
+
+
 # ── Playback switches: mute/unmute, e.g. the onboard S/PDIF (IEC958) ─
 # A playback *switch* (pswitch) toggles a path on or off; unlike mixer_controls
 # above it carries no volume, so it never drives squeezelite's `-V`. The usual
@@ -768,6 +807,11 @@ def normalize(model):
     m['name'] = name if _NAME_RE.match(name) else DEFAULTS['name']
     server = str(src.get('server') or '').strip()
     m['server'] = server if _HOST_RE.match(server) else DEFAULTS['server']
+    try:
+        http_port = int(src.get('http_port') or DEFAULTS['http_port'])
+    except (TypeError, ValueError):
+        http_port = DEFAULTS['http_port']
+    m['http_port'] = http_port if 1 <= http_port <= 65535 else DEFAULTS['http_port']
     mac = str(src.get('mac') or '').strip().lower()
     m['mac'] = mac if _MAC_RE.match(mac) else ''
     model_name = str(src.get('model') or '').strip()
@@ -784,7 +828,8 @@ def normalize(model):
     except (TypeError, ValueError):
         rate = 0
     m['max_rate'] = rate if rate in RATES else 0
-    m['volume'] = 'hardware' if str(src.get('volume') or '') == 'hardware' else 'software'
+    vol = str(src.get('volume') or '')
+    m['volume'] = vol if vol in ('hardware', 'software', 'auto') else 'auto'
     mixer = str(src.get('mixer') or '').strip()
     m['mixer'] = mixer if _MIXER_RE.match(mixer) else ''
     m['alsa_buffer'] = norm_buffer(src.get('alsa_buffer'), 'alsa_buffer')
@@ -845,7 +890,7 @@ def set_fields(model, changes):
             if not isinstance(value, int) or isinstance(value, bool) or value not in RATES:
                 raise InvalidField('squeezelite.invalidValue', key, str(value))
         elif key == 'volume':
-            if value not in ('software', 'hardware'):
+            if value not in ('software', 'hardware', 'auto'):
                 raise InvalidField('squeezelite.invalidValue', key, str(value))
         elif key == 'mixer':
             value = str(value or '').strip()
@@ -984,9 +1029,15 @@ def parse_args(args, dsp_target=None):
         rate = got['-r'].split(':', 1)[0]
         if rate.isdigit() and int(rate) in RATES:
             m['max_rate'] = int(rate)
+    # A migrated line reflects exactly what the device already did: -V means the
+    # owner had hardware volume, no -V means software. We pin it either way, so
+    # the one-time import does not silently switch a working device to the new
+    # 'auto' default (which a genuinely fresh model, with no prior ARGS, gets).
     if '-V' in got:
         m['volume'] = 'hardware'
         m['mixer'] = got['-V']
+    else:
+        m['volume'] = 'software'
     if '-a' in got:
         m['alsa_buffer'] = norm_buffer(got['-a'], 'alsa_buffer')
         if ':' in got['-a']:
@@ -1163,7 +1214,7 @@ def upsample_state(model, zone=False):
 
 
 def render_argv(model, probe_fn=None, visualizer=True, name=None, zone=False, proc_asound=None,
-                p2d_subdev=None):
+                p2d_subdev=None, mixer_fn=None):
     """squeezelite's arguments for a model, as a list. `probe_fn(device)`
     tells what the DAC declares for DSD (defaults to reading /proc/asound).
     `visualizer`: `-v`, the VU meters' shared memory -- the built-in player
@@ -1250,8 +1301,10 @@ def render_argv(model, probe_fn=None, visualizer=True, name=None, zone=False, pr
     # acts on the PCM, before the conversion. A hardware mixer control belongs
     # to the chosen card, so drop it when we fell back to `null`: that card
     # is gone and `-V` on a missing control would only warn.
-    if not pcm_only and m['volume'] == 'hardware' and m['mixer'] and not fell_back:
-        out += ['-V', m['mixer']]
+    if not pcm_only and not fell_back:
+        vol, mix = effective_volume(m, output, mixer_fn)
+        if vol == 'hardware' and mix:
+            out += ['-V', mix]
     # ALSA output buffer (`-a <ms>:<periods>`). The built-in player drives a USB
     # DAC, whose isochronous audio slots jitter on this box (a shared USB2
     # controller, a weak CPU): too small an ALSA buffer underruns at the USB
@@ -1374,9 +1427,13 @@ def save(model, conf_path=CONF):
     return m
 
 
-def write_default(args, default_path=DEFAULT):
-    """Write the defaults file for `args`. Returns True when it changed."""
-    content = HEADER + f"ARGS='{args}'\n"
+def write_default(args, default_path=DEFAULT, http_port=None):
+    """Write the defaults file for `args`. Returns True when it changed.
+    `http_port` (Lyrion's HTTP port) is emitted as a sibling shell var so the
+    file-based readers (hifi_metadata) can pick it up without the JSON."""
+    if http_port is None:
+        http_port = DEFAULTS['http_port']
+    content = HEADER + f"ARGS='{args}'\nLMS_HTTP_PORT='{int(http_port)}'\n"
     try:
         with open(default_path, encoding='utf-8') as f:
             if f.read() == content:
@@ -1438,7 +1495,8 @@ def update(fn, conf_path=CONF, default_path=DEFAULT, dsp_target_path=DSP_TARGET_
         if new is not None:
             model = new
         model = save(model, conf_path)
-        changed = write_default(render(model, probe_fn), default_path)
+        changed = write_default(render(model, probe_fn), default_path,
+                                http_port=model.get('http_port'))
     return model, changed
 
 
@@ -1516,7 +1574,7 @@ def _apply(conf_path, default_path, dsp_target_path, probe_fn, out, machine_id_p
             print(f'hifi_squeezelite: output {model["output"]} not present, '
                   f'falling back to {eff} (silent; player paused on Lyrion)', file=out)
     args = render(model, probe_fn)
-    changed = write_default(args, default_path)
+    changed = write_default(args, default_path, http_port=model.get('http_port'))
     if out is not None and changed:
         print(f'hifi_squeezelite: {default_path} rendered: {args}', file=out)
     # squeezelite starts right after this: when the built-in player converts on
@@ -2067,16 +2125,26 @@ PLAYERS_RUN_DIR = '/run/hifi-players'
 LMS_HTTP_PORT = 9000
 
 
+def _current_http_port():
+    """The Lyrion HTTP port from the saved model, 9000 on any trouble."""
+    try:
+        return load()[0].get('http_port', LMS_HTTP_PORT)
+    except Exception:
+        return LMS_HTTP_PORT
+
+
 def _unit_record(unit, run_dir=None):
     return os.path.join(run_dir or PLAYERS_RUN_DIR, re.sub(r'[^A-Za-z0-9@._-]', '_', unit) + '.json')
 
 
-def record_player(unit, mac, server, run_dir=None):
+def record_player(unit, mac, server, run_dir=None, port=None):
     """What `forget-unit` will need once `unit` stops."""
+    if port is None:
+        port = _current_http_port()
     try:
         path = _unit_record(unit, run_dir)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        _write_atomic(path, json.dumps({'mac': mac, 'server': server}) + '\n')
+        _write_atomic(path, json.dumps({'mac': mac, 'server': server, 'port': int(port)}) + '\n')
     except OSError as e:
         print(f'hifi_squeezelite: cannot record {unit}: {e}', file=sys.stderr)
 
@@ -2094,13 +2162,16 @@ def _lms_host(server):
     return s
 
 
-def _player_request(server, mac, cmd, timeout=5.0, opener=None):
+def _player_request(server, mac, cmd, timeout=5.0, opener=None, port=None):
     """Send a Lyrion CLI command to a player by MAC over JSON-RPC and return the
     reply's `result` object (a dict, possibly empty), or None when Lyrion did
-    not answer (it may be down, or on another device). Never raises."""
+    not answer (it may be down, or on another device). Never raises. `port` is
+    Lyrion's HTTP port; None → the saved model's http_port (9000 by default)."""
     if not mac:
         return None
-    url = f'http://{_lms_host(server)}:{LMS_HTTP_PORT}/jsonrpc.js'
+    if port is None:
+        port = _current_http_port()
+    url = f'http://{_lms_host(server)}:{int(port)}/jsonrpc.js'
     body = json.dumps({'id': 1, 'method': 'slim.request', 'params': [mac, list(cmd)]}).encode()
     try:
         req = urllib.request.Request(url, data=body, headers={'Content-Type': 'application/json'})
@@ -2113,16 +2184,16 @@ def _player_request(server, mac, cmd, timeout=5.0, opener=None):
         return None
 
 
-def forget_player(server, mac, timeout=5.0, opener=None):
+def forget_player(server, mac, timeout=5.0, opener=None, port=None):
     """Ask Lyrion to drop a disconnected player from its list. True when it
     answered; never raises (Lyrion may be down, or on another device)."""
-    return _player_request(server, mac, ['client', 'forget'], timeout, opener) is not None
+    return _player_request(server, mac, ['client', 'forget'], timeout, opener, port) is not None
 
 
-def player_mode(server, mac, timeout=5.0, opener=None):
+def player_mode(server, mac, timeout=5.0, opener=None, port=None):
     """Lyrion's playback mode for the player ('play', 'pause' or 'stop'), or ''
     when Lyrion did not answer or does not know the player yet."""
-    res = _player_request(server, mac, ['mode', '?'], timeout, opener)
+    res = _player_request(server, mac, ['mode', '?'], timeout, opener, port)
     return str((res or {}).get('_mode', '')) if res is not None else ''
 
 
@@ -2135,12 +2206,12 @@ def _dac_pause_marker(run_dir=None):
     return os.path.join(run_dir or PLAYERS_RUN_DIR, 'dac-paused')
 
 
-def _wait_for_player(server, mac, opener, timeout, poll):
+def _wait_for_player(server, mac, opener, timeout, poll, port=None):
     """Poll Lyrion until it knows the just-(re)started player, returning its
     mode; '' if it never answered within `timeout`."""
     deadline = time.monotonic() + timeout
     while True:
-        mode = player_mode(server, mac, opener=opener)
+        mode = player_mode(server, mac, opener=opener, port=port)
         if mode or time.monotonic() >= deadline:
             return mode
         time.sleep(poll)
@@ -2157,7 +2228,7 @@ def follow_dac_state(model, proc_asound=None, run_dir=None, opener=None,
     rule restarts the service, the card is present again) we resume the player
     we had paused. Keyed on the player's MAC; never raises."""
     m = normalize(model)
-    mac, server = m['mac'], m['server']
+    mac, server, port = m['mac'], m['server'], m['http_port']
     if not mac or m['dsp']['enabled']:
         return
     card, _ = parse_device(m['output'])
@@ -2175,14 +2246,14 @@ def follow_dac_state(model, proc_asound=None, run_dir=None, opener=None,
         # leaving the player running on into `null` (no sound, but the VU
         # meters keep moving). So pause, confirm it stuck, and pause again if
         # Lyrion resumed it, over a short settle window.
-        if _wait_for_player(server, mac, opener, connect_timeout, poll) != 'play':
+        if _wait_for_player(server, mac, opener, connect_timeout, poll, port) != 'play':
             return
         paused = False
         for _ in range(max(1, settle_tries)):
-            if _player_request(server, mac, ['pause', '1'], opener=opener) is not None:
+            if _player_request(server, mac, ['pause', '1'], opener=opener, port=port) is not None:
                 paused = True
             time.sleep(settle_wait)
-            if player_mode(server, mac, opener=opener) != 'play':
+            if player_mode(server, mac, opener=opener, port=port) != 'play':
                 break          # the pause held — Lyrion did not resume it
         if paused:
             with contextlib.suppress(OSError):
@@ -2197,8 +2268,8 @@ def follow_dac_state(model, proc_asound=None, run_dir=None, opener=None,
     except OSError:
         paused_mac = ''
     if paused_mac == mac:
-        _wait_for_player(server, mac, opener, connect_timeout, poll)
-        _player_request(server, mac, ['pause', '0'], opener=opener)
+        _wait_for_player(server, mac, opener, connect_timeout, poll, port)
+        _player_request(server, mac, ['pause', '0'], opener=opener, port=port)
         if out is not None:
             print(f'hifi_squeezelite: DAC {m["output"]} back — resumed {mac} on Lyrion', file=out)
     if paused_mac:
@@ -2296,7 +2367,7 @@ def run_zone(zid, zones_path=None, conf_path=CONF, poll=3.0, out=None):
             say(f'PCM to DSD converter: {e}')
         argv = zone_argv(zone, main['server'], p2d_subdev=sub)
         say(' '.join(argv))
-        record_player(unit, zone['mac'], main['server'])
+        record_player(unit, zone['mac'], main['server'], port=main.get('http_port'))
         state['proc'] = subprocess.Popen(argv)
         while True:
             try:

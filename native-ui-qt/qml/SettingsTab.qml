@@ -24,7 +24,7 @@ Item {
     // CD ripping: the offset field, as typed
     property string cdOffsetEdit: ""; property bool cdOffsetDirty: false
     property string sshUser: ""; property string sshPass: ""
-    property string nameEdit: ""; property string hostEdit: ""
+    property string nameEdit: ""; property string hostEdit: ""; property string portEdit: ""
     property string pendAct: ""; property string pendArg: ""
     property int countdown: 0
     // Display -> Rotation: a new rotation turns the screen at once and is only
@@ -277,6 +277,10 @@ Item {
         // sub-section; dacHats is the shipped card catalogue, dacHatCur the id in
         // effect. Boot-time overlay — distinct from the runtime output above.
         property bool dacSupported: false; property var dacHats: []; property string dacHatCur: ""
+        // Display → DSI touch panel (Raspberry Pi only). dsiSupported gates the
+        // sub-section; dsiPanels is the shipped panel catalogue, dsiPanelCur the id
+        // in effect. Boot-time overlay: set it over HDMI/TV, reboot, the DSI lights.
+        property bool dsiSupported: false; property var dsiPanels: []; property string dsiPanelCur: ""
         // the rest of squeezelite's command line (api /squeezelite_conf)
         property var sq: ({ loaded: false, conf: {}, args: "", dsd_detected: "dop", mixers: [], choices: {}, pcm2dsd: {} })
         // System tweaks (api /system_tweaks): OS-level CPU knobs, off by default.
@@ -327,7 +331,7 @@ Item {
         }
         // Settings → CD ripping (sources_server /api/cd/settings, hifi_cdrip.py)
         property var cdrip: ({ loaded: false, settings: {}, drive: {}, target_ok: false, targets: [], ripping: false, choices: {} })
-        property string lmsMode: "local"; property string lmsHost: ""; property string playerName: ""; property string lyrionChannel: "release"
+        property string lmsMode: "local"; property string lmsHost: ""; property string lmsPort: "9000"; property string playerName: ""; property string lyrionChannel: "release"
         property string lmsSkin: "unset"; property string skinState: ""; property string skinMsg: ""
         property string lyrInstalled: ""; property var lyrChVer: ["", "", ""]; property string lyrStatus: ""; property int lyrPct: 0; property bool lyrRunning: false
         property var disc: []                                       // [{name, ip}]
@@ -534,6 +538,11 @@ Item {
                 dacHatCur = str(d, "current")
                 dacHats = (d.cards || []).map(function(x) { return { id: String(x.id || ""), name: String(x.name || ""), dacchip: String(x.dacchip || "") } })
             })
+            get(api("/display_panels"), function(d) {
+                dsiSupported = d.supported === true
+                dsiPanelCur = str(d, "current")
+                dsiPanels = (d.panels || []).map(function(x) { return { id: String(x.id || ""), name: String(x.name || ""), detail: String(x.detail || "") } })
+            })
             get(api("/squeezelite_conf"), function(d) {
                 sq = { loaded: !!d.conf, conf: d.conf || {}, args: String(d.args || ""), dsd_detected: String(d.dsd_detected || "dop"),
                        mixers: d.mixers || [], switches: d.switches || [], output_rate: Number(d.output_rate || 0),
@@ -550,7 +559,7 @@ Item {
                         run_on_boot: d.run_on_boot !== false,
                         all_sources: d.all_sources || [], lastfm: String(d.lastfm || "off"), st: st, blocked: rec.blocked || [] }
             })
-            get(api("/lms_role"), function(d) { lmsMode = str(d, "mode", "local"); lmsHost = str(d, "host") })
+            get(api("/lms_role"), function(d) { lmsMode = str(d, "mode", "local"); lmsHost = str(d, "host"); lmsPort = str(d, "port", "9000") })
             get(api("/player_name"), function(d) { playerName = str(d, "name") })
             get(api("/lyrion_channel"), function(d) { lyrionChannel = str(d, "channel", "release") })
             get(api("/lyrion_update/check"), function(d) {
@@ -1621,11 +1630,12 @@ Item {
             var dm = (z.choices && z.choices.dsd) || ["auto", "dop", "native", "off"], dc = []
             for (var j = 0; j < dm.length; j++) dc.push(cell(Tr.t("settings.audio.dsd." + dm[j]), zn.id + "|" + dm[j], c.dsd === dm[j], "zone_dsd", { hh: 44 }))
             grid(dc)
-            if (zn.mixers && zn.mixers.length) toggle(Tr.t("settings.audio.volumeHardware"), Tr.t("settings.audio.volumeHelp"), c.volume === "hardware", "zone_hwvol", zn.id)
+            var zEffVol = (zn.effective ? zn.effective.volume : c.volume) || "software"
+            if (zn.mixers && zn.mixers.length) toggle(Tr.t("settings.audio.volumeHardware"), Tr.t("settings.audio.volumeHelp"), zEffVol === "hardware", "zone_hwvol", zn.id)
             else note(Tr.t("settings.audio.volumeNoMixer"), "dark")
             secConvert(String(c.pcm2dsd || "off"), String(c.pcm2dsd_filter || "clans-8"), String(c.upsample || "off"),
                        String(zn.pcm2dsd_state || "off"), String(zn.upsample_state || "off"),
-                       z.pcm2dsd || {}, String(c.volume || "software"), zn.id, false, Number(c.upsample_cap || 0))
+                       z.pcm2dsd || {}, zEffVol, zn.id, false, Number(c.upsample_cap || 0))
             grid([acell(Tr.t("settings.zones.remove"), "zone_remove", "red", { hh: 40, arg: zn.id, icon: "trash-2" })])
             end()
         }
@@ -1759,7 +1769,10 @@ Item {
         for (i = 0; i < mr.length; i++) mrc.push(cell(mr[i] ? (mr[i] / 1000) + " kHz" : Tr.t("settings.audio.auto"), String(mr[i]), c.max_rate === mr[i], "sq_rate", { hh: 44 }))
         grid(mrc)
         help("settings.audio.maxRateWarn", 12)
-        if (s.mixers && s.mixers.length) toggle(Tr.t("settings.audio.volumeHardware"), Tr.t("settings.audio.volumeHelp"), c.volume === "hardware", "sq_hwvol")
+        // With the default 'auto' the stored c.volume stays "auto"; s.effective is
+        // what the render will actually do, so the toggle reflects the real state.
+        var effVol = (s.effective ? s.effective.volume : c.volume) || "software"
+        if (s.mixers && s.mixers.length) toggle(Tr.t("settings.audio.volumeHardware"), Tr.t("settings.audio.volumeHelp"), effVol === "hardware", "sq_hwvol")
         else note(Tr.t("settings.audio.volumeNoMixer"), "dark")
         // Card playback switches: the onboard digital (S/PDIF/IEC958) output
         // boots muted on a clean ALSA state, so give it a toggle here.
@@ -1772,7 +1785,7 @@ Item {
             sep()
             secConvert(String(c.pcm2dsd || "off"), String(c.pcm2dsd_filter || "clans-8"), String(c.upsample || "off"),
                        String(s.pcm2dsd.state || "off"), String((s.pcm2dsd.upsample || {}).state || "off"),
-                       s.pcm2dsd, String(c.volume || "software"), "", false, Number(c.upsample_cap || 0))
+                       s.pcm2dsd, effVol, "", false, Number(c.upsample_cap || 0))
             sep()
         }
         var abR = (s.ranges || {}).alsa_buffer || { min: 50, max: 500 }
@@ -2013,6 +2026,8 @@ Item {
             if (!cfg.disc.length) help("settings.multiroom.role.noneFound", 12)
             var hv = hostEdit || cfg.lmsHost
             input(Tr.t("settings.multiroom.role.hostPlaceholder"), hv, "lms_host", false).hh = 50
+            var pv = portEdit || cfg.lmsPort
+            input(Tr.t("settings.multiroom.role.portPlaceholder"), pv, "lms_port", false).hh = 50
             var app = action(Tr.t("settings.multiroom.role.apply"), "lms_apply", "gold"); app.bold = true; app.hh = 44; app.dim = !hv
         }
         sep()
@@ -2389,7 +2404,7 @@ Item {
         // applies to this device's own server and /material/ may not even
         // exist on the other one (the root always serves its default skin).
         var url = cfg.lmsHost
-            ? "http://" + cfg.lmsHost + ":9000"
+            ? "http://" + cfg.lmsHost + ":" + (cfg.lmsPort || "9000")
             : "http://" + ip + ":9000/material/" + (cfg.lmsSkin === "osmium" ? "?defaultTheme=dark/Osmium" : "")
         if (!cfg.pairToken) { note(Tr.t("settings.webRemote.generatingToken"), "dark"); code(url); return }
         qr(JSON.stringify({ lms: url, api: ip + ":8080", token: cfg.pairToken }), Tr.t("settings.webRemote.scanHint"))
@@ -2479,11 +2494,25 @@ Item {
                 ro.style = "border"; ro.hh = 50
             }
         }
+        if (cfg.dsiSupported) secDsiPanel()
         sep()
         label("settings.playerEnabled.label"); help("settings.playerEnabled.help")
         var ps = info(Tr.t(cfg.playerEnabled ? "settings.playerEnabled.currentOn" : "settings.playerEnabled.currentOff"), ""); ps.style = "row"; ps.icon = "speaker"
         if (pendAct === "player_switch") confirmRow(Tr.t("settings.playerEnabled.offWarning"), Tr.t("settings.playerEnabled.confirmOff"), "player_confirm")
         else action(Tr.t(cfg.playerEnabled ? "settings.playerEnabled.switchOff" : "settings.playerEnabled.switchOn"), "player_switch", "dark")
+    }
+    // Display → DSI touch panel (Raspberry Pi only). Boot-time device-tree overlay,
+    // so picking a panel reboots (dsi_pick confirms). "None" (empty id) = the
+    // official panel auto-detected or HDMI only. Twin of secHat().
+    function secDsiPanel() {
+        sep()
+        label("settings.display.panel.title")
+        help("settings.display.panel.help", 12)
+        option(Tr.t("settings.display.panel.none"), "", "", cfg.dsiPanelCur === "", "dsi_pick").hh = 56
+        for (var i = 0; i < cfg.dsiPanels.length; i++) {
+            var p = cfg.dsiPanels[i]
+            var r = option(p.name, p.detail, p.id, cfg.dsiPanelCur === p.id, "dsi_pick"); r.hh = 60
+        }
     }
     function secTimezone() {
         help("settings.timezone.help")
@@ -2716,6 +2745,7 @@ Item {
         case "ssh_pass": sshPass = text; break
         case "player_name": nameEdit = text; break
         case "lms_host": hostEdit = text; break
+        case "lms_port": portEdit = text; break
         case "sq_extra": sqExtraEdit = text; sqExtraDirty = true; break
         case "rec_key": recKeyEdit = text; break
         case "cd_offset": cdOffsetEdit = text; cdOffsetDirty = true; break
@@ -3021,6 +3051,19 @@ Item {
             })
             break
         }
+        // DSI panel: same shape as hat_pick. Boot-time overlay, so confirm the
+        // reboot, post, and reboot. Picking the panel already in use does nothing.
+        case "dsi_pick": {
+            if (arg === cfg.dsiPanelCur) break
+            Ui.dialogs.confirm(Tr.t("settings.display.panel.rebootPrompt"), Tr.t("settings.controls.reboot"), false, function(go) {
+                if (!go) return
+                post(A("/set_display_panel"), { id: arg }, function(ok, d) {
+                    if (ok && d && d.success) { cfg.dsiPanelCur = arg; post(A("/reboot"), {}); say(Tr.t("settings.msg.rebooting")) }
+                    else say(Tr.t("settings.display.panel.setFailed"))
+                })
+            })
+            break
+        }
         // Audio → Advanced (see secSqueezelite); toggles send the opposite of
         // what the row shows, like the SSH and pointer switches
         case "sq_dsd": sqSet({ dsd: arg }); break
@@ -3139,7 +3182,7 @@ Item {
             if (Ui.cdrip) Ui.cdrip.ripNow(function(r) { if (r !== "ok" && Ui.toast) Ui.toast.say("disc", Tr.t("settings.cdRip.ripNow_" + r)) })
             break
         case "lms_skin": post(S("/api/lms_skin"), { skin: arg }); cfg.lmsSkin = arg; say(Tr.t("settings.lyrion.skinApplying")); break
-        case "wiz_field": case "pick_new": case "ssh_user": case "ssh_pass": case "player_name": case "lms_host": case "sq_extra": case "cd_offset":
+        case "wiz_field": case "pick_new": case "ssh_user": case "ssh_pass": case "player_name": case "lms_host": case "lms_port": case "sq_extra": case "cd_offset":
         case "rec_key": case "zone_name": case "zone_new_name": return
         case "lms_role":
             if (arg !== "local") { cfg.lmsMode = "follow"; cfg.loadDiscover(); break }
@@ -3169,15 +3212,17 @@ Item {
         case "lms_apply": {
             var h = hostEdit || cfg.lmsHost
             if (!h) { say(Tr.t("settings.multiroom.role.hostRequired"), true); return }
-            if (h === cfg.lmsHost) { say(Tr.t("settings.multiroom.role.saved")); return }
+            var p = parseInt(portEdit || cfg.lmsPort || "9000", 10)
+            if (!(p >= 1 && p <= 65535)) { say(Tr.t("settings.multiroom.role.portInvalid"), true); return }
+            if (h === cfg.lmsHost && String(p) === String(cfg.lmsPort)) { say(Tr.t("settings.multiroom.role.saved")); return }
             askRoleReboot(function() {
-                post(A("/lms_role"), { mode: "follow", host: h }, function(ok, d) {
+                post(A("/lms_role"), { mode: "follow", host: h, port: p }, function(ok, d) {
                     if (!ok || (d && d.success === false)) {
                         say((d && d.message) || Tr.t("settings.multiroom.role.failed"), true)
                         return
                     }
                     Api.refreshLmsHost()
-                    cfg.lmsHost = h; cfg.lmsMode = "follow"
+                    cfg.lmsHost = h; cfg.lmsPort = String(p); cfg.lmsMode = "follow"
                     say(Tr.t("settings.msg.rebooting"))
                     post(A("/reboot"), {})
                 })

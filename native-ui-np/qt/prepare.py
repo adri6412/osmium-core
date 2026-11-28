@@ -37,7 +37,7 @@ patch("api.h", 'QString apiBase() const { return "http://" + m_host + ":8000"; }
       'QString apiBase() const { return m_host + "/device/api"; }')
 patch("api.h", 'QString srcBase() const { return "http://" + m_host + ":8080"; }',
       'QString srcBase() const { return m_host + "/device/src"; }')
-patch("api.h", 'QString lmsBase() const { return "http://" + m_lmsHost + ":9000"; }',
+patch("api.h", 'QString lmsBase() const { return "http://" + m_lmsHost + ":" + QString::number(m_lmsPort); }',
       'QString lmsBase() const { return %s + "/device/lms"; }' % ("m_host" if NP_BUILD else "m_lmsHost"))
 # the "host" is the page's origin (set in wasm/main.cpp through HIFI_HOST)
 # The VU levels come from the audio the page is playing (Web Audio), not

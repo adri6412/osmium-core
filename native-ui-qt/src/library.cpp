@@ -197,7 +197,7 @@ static QVariantList substituteInput(QVariantList params, const QString &input) {
     return params;
 }
 
-void LibraryModel::request(int view, const QVariant &p1, const QVariant &p2, const QString &input) {
+void LibraryModel::request(int view, const QVariant &p1, const QVariant &p2, const QString &input, bool wantUrl) {
     int seq = ++m_seq;
     m_view = view;
     m_state = 1;
@@ -244,7 +244,7 @@ void LibraryModel::request(int view, const QVariant &p1, const QVariant &p2, con
         // cannot stream. Without want_url the entry arrives with no url at all,
         // so the kiosk cannot even tell it is a db: one -- ask for the url and
         // resolve it back to the real object on tap/play (issue #125).
-        if (s1 == "favorites") params << "want_url:1";
+        if (s1 == "favorites" || wantUrl) params << "want_url:1";
         break;
     default:
         beginResetModel(); m_items.clear(); m_order.clear(); endResetModel();

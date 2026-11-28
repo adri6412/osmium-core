@@ -126,6 +126,8 @@ MESSAGES = {
     'lms.ownAddress': {'en': '{host} is this device itself. To use its own music server, choose the internal server instead of an external one',
                        'it': '{host} è questo stesso dispositivo. Per usare il suo server musicale scegli il server interno invece di uno esterno'},
     'lms.invalidMode': {'en': 'Invalid mode: {mode}', 'it': 'Modalità non valida: {mode}'},
+    'lms.invalidPort': {'en': 'Invalid port: {port}. Use a number between 1 and 65535 (Lyrion\'s web port is 9000 by default)',
+                        'it': 'Porta non valida: {port}. Usa un numero tra 1 e 65535 (la porta web di Lyrion è 9000 per impostazione predefinita)'},
     'lms.sqConfigMissing': {'en': 'squeezelite configuration not found', 'it': 'Configurazione squeezelite non trovata'},
     'lms.unreachable': {'en': 'Cannot reach the music server to list its players',
                         'it': 'Server musicale non raggiungibile per elencare i suoi player'},

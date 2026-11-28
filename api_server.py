@@ -2359,9 +2359,17 @@ def set_audio_device(device):
         return {'success': True, 'message': _t('audio.dspOutputSet', _lang(), device=device)}
 
     # The DSD mode, the rate limit and the rest stay as the model says; the
-    # render decides `-D`'s format for the new DAC on its own (auto).
+    # render decides `-D`'s format for the new DAC on its own (auto). A mixer the
+    # user pinned for the old card is almost certainly absent on the new one, so
+    # drop it when it is: render/effective_volume then re-picks (or, for 'auto',
+    # resolves) a control that actually exists on the new DAC.
+    def _switch_output(model):
+        model['output'] = device
+        if model['volume'] == 'hardware' and model['mixer'] \
+                and model['mixer'] not in sq.mixer_controls(device):
+            model['mixer'] = ''
     try:
-        _sq_update(lambda model: model.update(output=device))
+        _sq_update(_switch_output)
     except Exception:
         log.exception("set_audio_device: write config failed")
         return {'success': False, 'code': 'audio.writeConfigFailed',
@@ -2578,6 +2586,194 @@ def _apply_dac_overlay_to_boot_fats(overlay):
                     pass
     return patched, failed
 
+# ── Settings → Display: DSI panel overlay (Raspberry Pi only) ──────
+# A twin of the I2S HAT selector above, for DSI touch panels. The chosen panel
+# writes a device-tree overlay into config.txt (its OWN marker block, separate
+# from the DAC one), taking effect at the next boot — the point being you do the
+# setup over HDMI/TV or the WebUI, reboot, and the Qt UI then comes up on the DSI
+# panel. The choice is saved to DISPLAY_PANEL_FILE on the shared /etc overlay so
+# it survives OTA: hifi-rpi-bootfat.sh re-injects it every time it regenerates a
+# boot FAT. hifi-rpi-dsioverlay.sh is the single renderer for both write paths.
+# Gated on hifi_platform.is_raspberry(): on x86 list_display_panels() reports
+# `supported: False` and the UI hides the section.
+DISPLAY_PANEL_FILE = '/etc/hifi-player/display-panel.conf'
+DISPLAY_PANELS_FILE = '/usr/local/share/hifi-ab/rpi-boot/display-panels.json'
+DSI_OVERLAY_SCRIPT = '/usr/local/sbin/hifi-rpi-dsioverlay.sh'
+# Where the live kernel's compiled overlays (.dtbo) sit, so we only offer panels
+# the running image actually ships (the overlay/token set drifts between kernel
+# versions). If no such dir exists we cannot verify and show the whole catalogue.
+DSI_OVERLAY_DIRS = ('/boot/firmware/overlays', '/boot/overlays')
+
+_display_panels_cache = None
+def _dsi_overlay_available(overlay):
+    """True if `overlay` (an overlay NAME, no params) has a .dtbo in the image, if
+    it is empty (auto-detect), or if no overlays dir can be found to check."""
+    if not overlay:
+        return True
+    dirs = [d for d in DSI_OVERLAY_DIRS if os.path.isdir(d)]
+    if not dirs:
+        return True  # cannot verify — do not hide
+    return any(os.path.exists(os.path.join(d, overlay + '.dtbo')) for d in dirs)
+
+def _load_display_panels():
+    """Return the DSI panel catalogue, filtered to overlays actually present in
+    the image (cached). Each entry: {id, name, detail, overlay, overlay_params,
+    overlay_touch}. Empty on error."""
+    global _display_panels_cache
+    if _display_panels_cache is not None:
+        return _display_panels_cache
+    panels = []
+    try:
+        with open(DISPLAY_PANELS_FILE, encoding='utf-8') as f:
+            doc = json.load(f)
+        for p in doc.get('panels', []):
+            overlay = str(p.get('overlay', ''))
+            if not _dsi_overlay_available(overlay):
+                continue
+            panels.append({
+                'id': str(p.get('id', '')),
+                'name': str(p.get('name', '')),
+                'detail': str(p.get('detail', '')),
+                'overlay': overlay,
+                'overlay_params': str(p.get('overlay_params', '')),
+                'overlay_touch': str(p.get('overlay_touch', '')),
+            })
+    except Exception:
+        log.exception("failed to load DSI panel catalogue %s", DISPLAY_PANELS_FILE)
+    _display_panels_cache = panels
+    return panels
+
+def _dsi_overlay_value(panel):
+    """The display dtoverlay payload for a panel: overlay[,params]. '' = auto."""
+    ov = panel['overlay']
+    if not ov:
+        return ''
+    if panel.get('overlay_params'):
+        ov = ov + ',' + panel['overlay_params']
+    return ov
+
+def _read_display_panel():
+    """Return {'id', 'display', 'touch'} from the saved conf (key=value lines).
+    Absent file = no panel."""
+    cur = {'id': '', 'display': '', 'touch': ''}
+    try:
+        with open(DISPLAY_PANEL_FILE, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('id='):
+                    cur['id'] = line[3:]
+                elif line.startswith('display='):
+                    cur['display'] = line[8:]
+                elif line.startswith('touch='):
+                    cur['touch'] = line[6:]
+    except OSError:
+        pass
+    return cur
+
+def list_display_panels():
+    """Catalogue + current selection for the Settings UI. On non-Pi hardware,
+    `supported` is False and the UI hides the section."""
+    if not hifi_platform.is_raspberry():
+        return {'supported': False, 'panels': [], 'current': ''}
+    return {'supported': True,
+            'panels': _load_display_panels(),
+            'current': _read_display_panel()['id']}
+
+def set_display_panel(panel_id):
+    """Persist the chosen DSI panel and write its overlay into both boot FATs'
+    config.txt. Takes effect on reboot. panel_id '' / 'none' clears the panel."""
+    if not hifi_platform.is_raspberry():
+        return {'success': False, 'code': 'dsi.notSupported',
+                'message': 'DSI panel selection is only available on Raspberry Pi.'}
+    if _update_in_progress():
+        return {'success': False, 'code': 'dsi.updateBusy',
+                'message': 'An update is in progress; try again after it finishes.'}
+
+    panel_id = (panel_id or '').strip()
+    if panel_id in ('', 'none'):
+        panel, display, touch = None, '', ''
+    else:
+        panel = next((p for p in _load_display_panels() if p['id'] == panel_id), None)
+        if panel is None:
+            return {'success': False, 'code': 'dsi.invalidPanel',
+                    'message': 'Unknown DSI panel: %s' % panel_id}
+        display = _dsi_overlay_value(panel)
+        touch = panel.get('overlay_touch', '')
+
+    # Persist first (survives OTA); then patch the live boot FATs for next boot.
+    conf = 'id=%s\ndisplay=%s\ntouch=%s\n' % (panel_id if panel else '', display, touch)
+    try:
+        os.makedirs(os.path.dirname(DISPLAY_PANEL_FILE), exist_ok=True)
+        _write_file_atomic(DISPLAY_PANEL_FILE, conf)
+    except OSError:
+        log.exception("set_display_panel: failed to save %s", DISPLAY_PANEL_FILE)
+        return {'success': False, 'code': 'dsi.saveFailed',
+                'message': 'Could not save the DSI panel selection.'}
+
+    patched, failed = _apply_dsi_overlay_to_boot_fats(display, touch)
+    if not patched:
+        return {'success': False, 'code': 'dsi.applyFailed',
+                'message': 'Saved, but no boot partition could be updated: %s'
+                           % ', '.join(failed)}
+    msg = ('Panel set to %s — reboot to apply.' % panel['name']) if panel \
+        else 'DSI panel disabled — reboot to apply.'
+    return {'success': True, 'reboot_required': True, 'current': panel_id if panel else '',
+            'message': msg, 'warnings': failed}
+
+def _apply_dsi_overlay_to_boot_fats(display, touch):
+    """Render the DSI overlay into config.txt on every boot FAT (A and B). Twin of
+    _apply_dac_overlay_to_boot_fats; see it for the mount handling."""
+    import tempfile
+    patched, failed = [], []
+    mounts = {}
+    try:
+        with open('/proc/mounts', encoding='utf-8') as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    mounts[os.path.realpath(parts[0])] = parts[1]
+    except OSError:
+        pass
+    for label in DAC_BOOT_PARTLABELS:
+        dev = '/dev/disk/by-partlabel/' + label
+        try:
+            rdev = os.path.realpath(dev)
+        except OSError:
+            rdev = dev
+        if not os.path.exists(dev):
+            failed.append(label + ' (absent)')
+            continue
+        mp = mounts.get(rdev)
+        own_mount = None
+        try:
+            if mp is None:
+                own_mount = tempfile.mkdtemp(prefix='hifi-bootfat-')
+                subprocess.run(['mount', dev, own_mount], check=True,
+                               capture_output=True)
+                mp = own_mount
+            cfg = os.path.join(mp, 'config.txt')
+            if not os.path.isfile(cfg):
+                failed.append(label + ' (no config.txt)')
+                continue
+            subprocess.run(['sh', DSI_OVERLAY_SCRIPT, cfg, display, touch], check=True,
+                           capture_output=True)
+            patched.append(label)
+        except Exception as e:
+            log.exception("set_display_panel: patching %s failed", label)
+            failed.append('%s (%s)' % (label, e))
+        finally:
+            if own_mount is not None:
+                try:
+                    subprocess.run(['umount', own_mount], check=False,
+                                   capture_output=True)
+                except Exception:
+                    pass
+                try:
+                    os.rmdir(own_mount)
+                except OSError:
+                    pass
+    return patched, failed
+
 # ── Settings → Audio: the rest of the squeezelite model ────────────
 # The fields in hifi_squeezelite.TUNABLE (DSD mode, switching pause, rate
 # limit, hardware volume, buffers, real-time priority, extra arguments) —
@@ -2588,6 +2784,11 @@ def get_squeezelite_conf():
     return {
         'conf': model,
         'args': sq.render(model),
+        # The concrete (volume, mixer) the render will actually use: with the
+        # default 'auto' the stored volume stays 'auto', so the UI reads this to
+        # show the hardware-volume toggle in its real state. See effective_volume().
+        'effective': (lambda ev: {'volume': ev[0], 'mixer': ev[1]})(
+            sq.effective_volume(model, model['output'])),
         # 'pcm': no USB DAC on this output (HDMI, the onboard codec, default),
         # so Automatic lets squeezelite convert DSD to PCM -- see sq.probe().
         'dsd_detected': 'native' if sq.is_native(fmt) else ('pcm' if fmt == sq.PCM_ONLY else 'dop'),
@@ -3073,6 +3274,10 @@ def get_zones():
             'conf': {k: z[k] for k in ZONE_TUNABLE},
             'dsd_detected': 'native' if sq.is_native(fmt) else ('pcm' if fmt == sq.PCM_ONLY else 'dop'),
             'mixers': sq.mixer_controls(z['output']),
+            # Concrete (volume, mixer) the zone render will use -- the UI reads it
+            # so the toggle is right even when the stored volume is 'auto'.
+            'effective': (lambda ev: {'volume': ev[0], 'mixer': ev[1]})(
+                sq.effective_volume(z, z['output'])),
             'pcm2dsd_state': sq.pcm2dsd_state(with_server, fmt),
             'upsample_state': sq.upsample_state(with_server, zone=True),
         })
@@ -3211,6 +3416,13 @@ def _current_lms_host():
     except Exception:
         return '127.0.0.1'
 
+def _current_lms_port():
+    """Lyrion's HTTP port for the server this box follows (9000 by default)."""
+    try:
+        return int(_sq_load().get('http_port') or 9000)
+    except Exception:
+        return 9000
+
 # A DNS name for an external Lyrion server (nas.lan, lms.example.com,
 # osmium.local). Letters, digits and hyphens per label only: the name ends up
 # inside squeezelite's ARGS='...' line, so no quote, space or shell character
@@ -3298,9 +3510,59 @@ def _is_own_address(addr):
 
 def get_lms_role():
     host = _current_lms_host()
+    port = _current_lms_port()
     if host == '127.0.0.1':
-        return {'mode': 'local', 'host': None}
-    return {'mode': 'follow', 'host': host}
+        return {'mode': 'local', 'host': None, 'port': port}
+    return {'mode': 'follow', 'host': host, 'port': port}
+
+def _squeezelite_active():
+    """True if this box's built-in squeezelite.service is running right now.
+    Used to tell "the player migrated to another Lyrion" (service up, but our
+    MAC is not on the server we follow) from "the player did not start"
+    (service down, e.g. squeezelite crash-looping on an unopenable output)."""
+    try:
+        return _run(['systemctl', 'is-active', '--quiet', 'squeezelite'],
+                    timeout=5).returncode == 0
+    except Exception:
+        log.exception("_squeezelite_active failed")
+        return False
+
+def own_player_status():
+    """Whether THIS box's own player (its squeezelite, matched by MAC) is
+    present on the Lyrion this box currently follows.
+
+    The kiosk uses it to tell three situations apart instead of hanging on a
+    generic "connecting" overlay:
+      - server_reachable == False        -> the followed Lyrion did not answer;
+      - own_player_present == False      -> reachable, but our player is not
+        there: it was moved to another server (squeezelite_running True) or it
+        never came up (squeezelite_running False);
+      - own_player_present == True       -> normal; the kiosk's own lookup takes
+        over and reconnects.
+    Read-only. Identifies the player by MAC (_own_player_ids), which is more
+    robust than the kiosk's name match."""
+    role = get_lms_role()
+    out = {
+        'mode': role.get('mode'),
+        'host': role.get('host'),
+        'port': role.get('port'),
+        'mac': _own_player_mac(),
+        'server_reachable': False,
+        'own_player_present': False,
+        'squeezelite_running': _squeezelite_active(),
+    }
+    try:
+        result = _lms_request('-', ['serverstatus', 0, 999]) or {}
+        out['server_reachable'] = True
+        players = result.get('players_loop', []) or []
+        mine = {str(pid).lower() for pid in _own_player_ids(players) if pid}
+        out['own_player_present'] = any(
+            str(p.get('playerid') or '').lower() in mine and p.get('connected')
+            for p in players)
+    except Exception:
+        # Transport error / server down: server_reachable stays False.
+        pass
+    return out
 
 def _set_local_lyrion_enabled(enable):
     """Start+enable, or stop+disable, this device's OWN Lyrion Music Server.
@@ -3337,9 +3599,26 @@ def _set_local_lyrion_enabled(enable):
         log.exception("set_lms_role: systemctl %s %s failed", action[0], LYRION_UNIT)
         return False
 
-def set_lms_role(mode, host):
+def _coerce_lms_port(port):
+    """None/'' → 9000; a 1–65535 int (or its string) → that int; else None."""
+    if port is None or port == '':
+        return 9000
+    try:
+        port = int(str(port).strip())
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
+
+def set_lms_role(mode, host, port=None):
+    target_port = _coerce_lms_port(port)
+    if target_port is None:
+        return {'success': False, 'code': 'lms.invalidPort',
+                'message': _t('lms.invalidPort', _lang(), port=port)}
     if mode == 'local':
         target = '127.0.0.1'
+        # The on-box Lyrion always answers on 9000; a custom port only makes
+        # sense for an external server one follows.
+        target_port = 9000
     elif mode == 'follow':
         host = host.strip().rstrip('.').lower() if isinstance(host, str) else host
         if not (_valid_ipv4(host) or _valid_hostname(host)):
@@ -3377,7 +3656,7 @@ def set_lms_role(mode, host):
     # after the move those players convert on the new server instead.
     old_host = _current_lms_host()
     try:
-        _sq_update(lambda model: model.update(server=target))
+        _sq_update(lambda model: model.update(server=target, http_port=target_port))
     except Exception:
         log.exception("set_lms_role: write config failed")
         return {'success': False, 'code': 'lms.sqConfigMissing',
@@ -7371,13 +7650,16 @@ def _current_real_dac():
 # companion app) triggered the change.
 LMS_RPC_URL = 'http://127.0.0.1:9000/jsonrpc.js'
 
-def _lms_rpc(host, playerid, command, timeout=5):
-    """A jsonrpc.js slim.request to the Lyrion on `host` (port 9000). `host`
-    is the server a player follows -- 127.0.0.1 for the local Lyrion, or a
-    remote Osmium / third-party server for the built-in player when it is set
-    to follow one. Raises on a transport error; the caller decides what that
-    means."""
-    url = f'http://{host}:9000/jsonrpc.js'
+def _lms_rpc(host, playerid, command, timeout=5, port=None):
+    """A jsonrpc.js slim.request to the Lyrion on `host`. `host` is the server a
+    player follows -- 127.0.0.1 for the local Lyrion, or a remote Osmium /
+    third-party server for the built-in player when it is set to follow one.
+    `port` is Lyrion's HTTP port; None → the followed server's configured port
+    (9000 by default). Raises on a transport error; the caller decides what
+    that means."""
+    if port is None:
+        port = _current_lms_port()
+    url = f'http://{host}:{int(port)}/jsonrpc.js'
     payload = json.dumps({'id': 1, 'method': 'slim.request', 'params': [playerid, command]}).encode()
     req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -11695,6 +11977,15 @@ def api_set_dac_hat():
     data = request.get_json(silent=True) or {}
     return jsonify(set_dac_hat(data.get('id')))
 
+@app.route('/display_panels', methods=['GET'])
+def api_display_panels():
+    return jsonify(list_display_panels())
+
+@app.route('/set_display_panel', methods=['POST'])
+def api_set_display_panel():
+    data = request.get_json(silent=True) or {}
+    return jsonify(set_display_panel(data.get('id')))
+
 @app.route('/set_mixer_switch', methods=['POST'])
 def api_set_mixer_switch():
     data = request.get_json(silent=True) or {}
@@ -11837,7 +12128,7 @@ def _lms_web(path, method='GET', form=None, follow=True, timeout=12):
     settings/auth pages are HTML and want form-urlencoded bodies. follow=False
     keeps a 3xx so its Location header can be read."""
     host = _current_lms_host() or '127.0.0.1'
-    url = f'http://{host}:9000/{path.lstrip("/")}'
+    url = f'http://{host}:{_current_lms_port()}/{path.lstrip("/")}'
     data = None
     headers = {}
     if form is not None:
@@ -12004,7 +12295,11 @@ def api_lms_role():
 @app.route('/lms_role', methods=['POST'])
 def api_set_lms_role():
     data = request.get_json(silent=True) or {}
-    return jsonify(set_lms_role(data.get('mode'), data.get('host')))
+    return jsonify(set_lms_role(data.get('mode'), data.get('host'), data.get('port')))
+
+@app.route('/own_player_status', methods=['GET'])
+def api_own_player_status():
+    return jsonify(own_player_status())
 
 @app.route('/player_name', methods=['GET'])
 def api_player_name():

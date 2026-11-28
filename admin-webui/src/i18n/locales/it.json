@@ -69,6 +69,7 @@
     "lyrionExternal": "Esterno (già sulla mia rete)",
     "lyrionExternalHint": "Scegli il server trovato sulla rete, oppure digita il suo indirizzo.",
     "lyrionServerIp": "Indirizzo del server",
+    "lyrionServerPort": "Porta",
     "lyrionSearch": "Cerca di nuovo",
     "lyrionSearching": "Cerco sulla rete…",
     "lyrionNoneFound": "Nessun server Lyrion trovato sulla rete al momento.",
@@ -974,6 +975,7 @@
       "installing": "Installazione di Lyrion…",
       "installFailed": "Installazione di Lyrion fallita. Controlla la connessione e riprova.",
       "serverIpPlaceholder": "IP o nome del server (es. 192.168.1.50 o nas.local)",
+      "serverPortPlaceholder": "Porta",
       "search": "Cerca",
       "searching": "Cerco server sulla rete…",
       "roleUpdated": "Server musicale aggiornato",
@@ -1066,6 +1068,13 @@
     },
     "display": {
       "currentLabel": "Attuale",
+      "panel": {
+        "title": "Display touch DSI",
+        "help": "Seleziona il pannello DSI collegato al connettore display della scheda. L'overlay device-tree viene caricato all'avvio, quindi applicarlo riavvia il player. Scegli \"Nessuno / auto\" per il display ufficiale Raspberry Pi (rilevato in automatico) o per il solo HDMI.",
+        "none": "Nessuno / auto",
+        "rebootPrompt": "Il player deve riavviarsi per caricare il pannello selezionato. Continuare?",
+        "saved": "Pannello DSI salvato, riavvio…"
+      },
       "headless": "Headless (senza schermo)",
       "onscreen": "Interfaccia su schermo",
       "switchToOnscreen": "Riaccendi l'interfaccia su schermo",

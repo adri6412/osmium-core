@@ -413,6 +413,9 @@
     "connectionErrorTitle": "Verbindungsfehler",
     "noPlayer": "Kein Lyrion-Player gefunden",
     "noPlayerHint": "Der Server hat möglicherweise noch nicht geantwortet. Versuche, die Verbindung erneut herzustellen.",
+    "playerMigrated": "Der Player dieses Geräts wurde auf einen anderen Lyrion-Server verschoben. Hier gibt es nichts mehr abzuspielen.",
+    "playerDown": "Der Player dieses Geräts wurde nicht gestartet.",
+    "bringHere": "Player hierher zurückholen",
     "connectingShort": "Verbinden...",
     "reconnect": "Erneut verbinden",
     "nowPlaying": "Aktuelle Wiedergabe",
@@ -864,6 +867,8 @@
         "follow": "Extern (in meinem Netzwerk)",
         "hostPlaceholder": "IP oder Name, z. B. 192.168.1.50 oder nas.local",
         "hostRequired": "Gib die IP-Adresse oder den Namen des zu verfolgenden Geräts ein.",
+        "portPlaceholder": "Port (Standard 9000)",
+        "portInvalid": "Der Port muss eine Zahl zwischen 1 und 65535 sein.",
         "apply": "Anwenden",
         "rebootWarning": "Für die Änderung des Musikservers ist ein Neustart erforderlich. Jetzt neu starten?",
         "saved": "Lyrion-Server aktualisiert.",
@@ -1127,6 +1132,15 @@
       "kept": "Niedrige Bildwiederholrate beibehalten.",
       "reverted": "Keine Bestätigung erhalten – Rückkehr zur nativen Bildwiederholrate.",
       "failed": "Die Bildwiederholrate konnte nicht geändert werden."
+    },
+    "display": {
+      "panel": {
+        "title": "DSI-Touchdisplay",
+        "help": "Wähle das DSI-Panel, das am Display-Anschluss der Platine angeschlossen ist. Der Treiber wird beim Start geladen, daher wird beim Anwenden neu gestartet. Wähle \"Keins / automatisch\" für das offizielle Raspberry-Pi-Display (automatisch erkannt) oder nur HDMI.",
+        "none": "Keins / automatisch",
+        "rebootPrompt": "Das Panel wird beim Neustart angewendet. Jetzt neu starten?",
+        "setFailed": "DSI-Panel konnte nicht angewendet werden."
+      }
     },
     "displayMode": {
       "help": "Auswählen, ob dieses Gerät über die Touchscreen-Benutzeroberfläche auf dem Bildschirm oder im Headless-Modus (ohne Bildschirm) betrieben werden soll – in letzterem Fall erfolgt die Steuerung aus der Ferne über die zugehörige Android-App, die Web-Administration (http://osmium.local) oder die Lyrion-Weboberfläche (Port 9000).",

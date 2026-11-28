@@ -180,11 +180,38 @@ class TestMixer(unittest.TestCase):
         self.assertEqual(sq.mixer_controls('default', run), [])
         self.assertEqual(sq.mixer_controls('hw:CARD=Loopback,DEV=0', run), [])
 
+    def test_effective_volume(self):
+        # A fake mixer list for the card: 'D50s' has a 'PCM' control, others none.
+        has = lambda dev, run=None: ['PCM'] if 'D50s' in dev else []
+        out = 'hw:CARD=D50s,DEV=0'
+        bare = 'hw:CARD=Bare,DEV=0'
+        # explicit software: never hardware, whatever the card offers
+        self.assertEqual(sq.effective_volume({'volume': 'software', 'mixer': 'PCM'}, out, has),
+                         ('software', ''))
+        # explicit hardware: keep a valid stored mixer, re-pick a stale/empty one,
+        # fall back to software when the card has no control at all
+        self.assertEqual(sq.effective_volume({'volume': 'hardware', 'mixer': 'PCM'}, out, has),
+                         ('hardware', 'PCM'))
+        self.assertEqual(sq.effective_volume({'volume': 'hardware', 'mixer': 'Gone'}, out, has),
+                         ('hardware', 'PCM'))
+        self.assertEqual(sq.effective_volume({'volume': 'hardware', 'mixer': ''}, out, has),
+                         ('hardware', 'PCM'))
+        self.assertEqual(sq.effective_volume({'volume': 'hardware', 'mixer': 'PCM'}, bare, has),
+                         ('software', ''))
+        # auto (the default): hardware when the card has a control, else software
+        self.assertEqual(sq.effective_volume({'volume': 'auto', 'mixer': ''}, out, has),
+                         ('hardware', 'PCM'))
+        self.assertEqual(sq.effective_volume({'volume': 'auto', 'mixer': ''}, bare, has),
+                         ('software', ''))
+
 
 class TestModel(unittest.TestCase):
     def test_defaults_are_normal(self):
         self.assertEqual(sq.normalize({}), sq.normalize(sq.DEFAULTS))
         self.assertEqual(sq.normalize(None)['dsd'], 'auto')
+        # volume defaults to 'auto': hardware is enabled on its own when the DAC
+        # has a usable control, so a fresh image needs no SSH (issue #161).
+        self.assertEqual(sq.normalize({})['volume'], 'auto')
 
     def test_normalize_is_lenient(self):
         m = sq.normalize({'output': "hw:CARD=X,DEV=0'; rm -rf /", 'name': 'has space', 'server': 'bad host',
@@ -198,7 +225,7 @@ class TestModel(unittest.TestCase):
         self.assertEqual(m['dsd'], 'auto')
         self.assertEqual(m['dsd_delay_ms'], 0)
         self.assertEqual(m['max_rate'], 0)
-        self.assertEqual(m['volume'], 'software')
+        self.assertEqual(m['volume'], 'auto')   # unknown value falls back to the default
         self.assertEqual(m['mixer'], '')
         self.assertEqual(m['alsa_buffer'], 100)   # junk falls back to the default
         self.assertEqual(m['alsa_periods'], 3)    # junk periods fall back to the default
@@ -309,10 +336,15 @@ class TestRender(unittest.TestCase):
         # PROC_ASOUND; point it at the sandbox so chosen cards count as present.
         self._saved_proc = sq.PROC_ASOUND
         sq.PROC_ASOUND = self.sb.asound
+        # render now resolves the volume against the card's mixer controls; fake
+        # amixer so D50s has a usable 'PCM' control and everything else has none.
+        self._saved_mixer = sq.mixer_controls
+        sq.mixer_controls = lambda device, run=None: ['PCM'] if 'D50s' in device else []
         self.base = sq.normalize({'output': 'hw:CARD=D50s,DEV=0'})
 
     def tearDown(self):
         sq.PROC_ASOUND = self._saved_proc
+        sq.mixer_controls = self._saved_mixer
 
     def r(self, **changes):
         m = dict(self.base)
@@ -351,7 +383,13 @@ class TestRender(unittest.TestCase):
         self.assertNotIn(' -r ', self.r(max_rate=0))
         self.assertIn(' -V PCM', self.r(volume='hardware', mixer='PCM'))
         self.assertNotIn(' -V ', self.r(volume='software', mixer='PCM'))
-        self.assertNotIn(' -V ', self.r(volume='hardware', mixer=''))
+        # hardware with no (or a stale) mixer re-picks the card's first control
+        self.assertIn(' -V PCM', self.r(volume='hardware', mixer=''))
+        self.assertIn(' -V PCM', self.r(volume='hardware', mixer='Gone'))
+        # 'auto' (the default) turns hardware volume on when the DAC has a control
+        self.assertIn(' -V PCM', self.r(volume='auto'))
+        # ...and stays on software when it has none (here the Gen card has no mixer)
+        self.assertNotIn(' -V ', self.r(volume='auto', output='hw:CARD=Gen,DEV=0'))
         self.assertIn(' -a 400:3', self.r(alsa_buffer=400))
         self.assertNotIn(' -a ', self.r(alsa_buffer=0))
         self.assertIn(' -b 4096:5461', self.r(stream_buffer=4096))
@@ -457,9 +495,12 @@ class TestOutputFallback(unittest.TestCase):
         self.sb.card('D50s', STREAM_NATIVE_BE)
         self._saved_proc = sq.PROC_ASOUND
         sq.PROC_ASOUND = self.sb.asound
+        self._saved_mixer = sq.mixer_controls
+        sq.mixer_controls = lambda device, run=None: ['PCM'] if 'D50s' in device else []
 
     def tearDown(self):
         sq.PROC_ASOUND = self._saved_proc
+        sq.mixer_controls = self._saved_mixer
 
     def test_available_output(self):
         self.assertEqual(sq.available_output('hw:CARD=D50s,DEV=0'), 'hw:CARD=D50s,DEV=0')
@@ -835,6 +876,31 @@ class TestApiServer(unittest.TestCase):
         self.assertFalse(self.api.set_audio_device('hw:CARD=Evil,DEV=0')['success'])
         self.assertEqual(self.api._current_real_dac(), 'hw:CARD=D50s,DEV=0')
 
+    def test_volume_auto_enables_hardware_and_exposes_effective(self):
+        # 'auto' (the default for a fresh model) turns hardware volume on when the
+        # DAC has a usable control -- no SSH needed (issue #161). get_squeezelite_conf
+        # reports the resolved (volume, mixer) so the UI shows the real state.
+        r = self.api.set_squeezelite_conf({'volume': 'auto'})
+        self.assertTrue(r['success'], r)
+        self.assertEqual(r['conf']['volume'], 'auto')     # the stored intent stays 'auto'
+        self.assertEqual(r['effective'], {'volume': 'hardware', 'mixer': 'PCM'})
+        self.assertIn(' -V PCM', self.sb.args())
+        # on a DAC with no control, auto stays on software and emits no -V
+        self.api.set_audio_device('hw:CARD=Gen,DEV=0')
+        g = self.api.get_squeezelite_conf()
+        self.assertEqual(g['effective'], {'volume': 'software', 'mixer': ''})
+        self.assertNotIn(' -V ', self.sb.args())
+
+    def test_dac_change_drops_a_stale_hardware_mixer(self):
+        # A mixer the user pinned for one card is cleared when it is absent on the
+        # DAC they switch to, so render does not emit -V for a missing control (#3c).
+        r = self.api.set_squeezelite_conf({'volume': 'hardware'})
+        self.assertEqual(r['conf']['mixer'], 'PCM')
+        self.assertIn(' -V PCM', self.sb.args())
+        self.api.set_audio_device('hw:CARD=Gen,DEV=0')     # Gen has no mixer control
+        self.assertEqual(self.sb.conf_json()['mixer'], '')
+        self.assertNotIn(' -V ', self.sb.args())
+
     def test_player_name_and_lms_role(self):
         self.assertTrue(self.api.set_player_name('Salotto')['success'])
         self.assertIn(' -n Salotto ', self.sb.args())
@@ -842,7 +908,7 @@ class TestApiServer(unittest.TestCase):
         self.assertTrue(self.api.set_lms_role('follow', '192.168.1.50')['success'])
         self.assertIn(' -s 192.168.1.50 ', self.sb.args())
         self.assertIn(' -n Salotto ', self.sb.args())    # the two fields do not clobber each other
-        self.assertEqual(self.api.get_lms_role(), {'mode': 'follow', 'host': '192.168.1.50'})
+        self.assertEqual(self.api.get_lms_role(), {'mode': 'follow', 'host': '192.168.1.50', 'port': 9000})
         self.assertTrue(self.api.set_lms_role('local', None)['success'])
         self.assertIn(' -s 127.0.0.1 ', self.sb.args())
 

@@ -413,6 +413,9 @@
     "connectionErrorTitle": "Connection Error",
     "noPlayer": "No Lyrion player found",
     "noPlayerHint": "The server may not have responded yet. Try connecting again.",
+    "playerMigrated": "This device's player was moved to another Lyrion server. There is nothing left to play here.",
+    "playerDown": "This device's player didn't start.",
+    "bringHere": "Bring the player back here",
     "connectingShort": "Connecting…",
     "reconnect": "Reconnect",
     "nowPlaying": "Now Playing",
@@ -864,6 +867,8 @@
         "follow": "External (on my network)",
         "hostPlaceholder": "IP or name, e.g. 192.168.1.50 or nas.local",
         "hostRequired": "Enter the IP address or name of the device to follow.",
+        "portPlaceholder": "Port (default 9000)",
+        "portInvalid": "The port must be a number between 1 and 65535.",
         "apply": "Apply",
         "rebootWarning": "Changing the music server needs a restart to take effect. Restart now?",
         "saved": "Lyrion server updated.",
@@ -1127,6 +1132,15 @@
       "kept": "Low-power refresh rate kept.",
       "reverted": "No confirmation received — reverted to the native refresh rate.",
       "failed": "Could not change the refresh rate."
+    },
+    "display": {
+      "panel": {
+        "title": "DSI touch display",
+        "help": "Select the DSI panel connected to the board's display connector. The driver is loaded at boot, so applying it reboots. Pick \"None / auto\" for the official Raspberry Pi display (auto-detected) or HDMI only.",
+        "none": "None / auto-detect",
+        "rebootPrompt": "The panel is applied on reboot. Reboot now?",
+        "setFailed": "Could not apply the DSI panel."
+      }
     },
     "displayMode": {
       "help": "Choose whether this device runs with the on-screen touchscreen interface or headless (no screen), controlled remotely from the Android companion app, the Lyrion web interface (port 9000) or the music sources page (port 8080).",

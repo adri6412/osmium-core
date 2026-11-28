@@ -302,6 +302,26 @@ async function applyHat(id) {
   waitForReboot();
 }
 
+// DSI touch panel (Raspberry Pi only): a hardware choice written into the boot
+// config.txt, so applying it reboots. Twin of the DAC HAT selector above.
+// dsiSupported hides the whole block on x86. id '' = no panel (auto-detect/HDMI).
+const dsiSupported = ref(false); const dsiPanels = ref([]); const currentPanel = ref('');
+async function loadDisplayPanels() {
+  const r = await api.sys('display_panels');
+  if (r.ok) { dsiSupported.value = r.data.supported === true; dsiPanels.value = r.data.panels || []; currentPanel.value = r.data.current || ''; }
+}
+async function applyPanel(id) {
+  if (id === currentPanel.value) return;
+  if (!confirm(t('settings.display.panel.rebootPrompt'))) return;
+  const r = await api.sysPost('display_panel', { id });
+  const ok = r.ok && r.data.success !== false;
+  say(bodyMsg(r, t('settings.display.panel.saved')), !ok);
+  if (!ok) { loadDisplayPanels(); return; }
+  currentPanel.value = id;
+  await api.sysPost('reboot', {});
+  waitForReboot();
+}
+
 // ── Audio → Advanced: the rest of squeezelite's command line ──────
 // api_server.py get/set/reset_squeezelite_conf; the model lives in
 // hifi_squeezelite.py and /etc/default/squeezelite is rendered from it, so
@@ -925,14 +945,16 @@ async function setTailscale(v) {
 // mode/host are what the form shows (the External button and the address
 // field write to them before anything is applied); savedMode/savedHost are
 // what the device actually runs, so "did this really change?" can be asked.
-const lms = reactive({ mode: 'local', host: '', servers: [], savedMode: 'local', savedHost: '' });
+const lms = reactive({ mode: 'local', host: '', port: 9000, servers: [], savedMode: 'local', savedHost: '', savedPort: 9000 });
 async function loadLms() {
   const r = await api.sys('lms_role');
   if (r.ok) {
     lms.mode = r.data.mode || 'local';
     lms.host = r.data.host || '';
+    lms.port = r.data.port || 9000;
     lms.savedMode = lms.mode;
     lms.savedHost = lms.host;
+    lms.savedPort = lms.port;
   }
 }
 // This box's own Lyrion answers the discovery broadcast too, and following it
@@ -953,12 +975,13 @@ async function discoverLms() {
 // up front, and skipped entirely when the choice is already the live one.
 async function applyLmsRole(mode, hostArg) {
   const target = mode === 'follow' ? (hostArg || lms.host || null) : null;
+  const targetPort = mode === 'follow' ? (Number(lms.port) || 9000) : 9000;
   const unchanged = mode === 'local'
     ? lms.savedMode !== 'follow'
-    : (lms.savedMode === 'follow' && target === lms.savedHost);
+    : (lms.savedMode === 'follow' && target === lms.savedHost && targetPort === lms.savedPort);
   if (unchanged) { lms.mode = mode; return; }
   if (!confirm(t('settings.lyrion.rebootWarning'))) return;
-  const r = await api.sysPost('lms_role', { mode, host: target });
+  const r = await api.sysPost('lms_role', { mode, host: target, port: targetPort });
   const ok = r.ok && r.data.success !== false;
   say(bodyMsg(r, t('settings.lyrion.roleUpdated')), !ok);
   if (!ok) { loadLms(); return; }
@@ -1084,7 +1107,7 @@ async function pickSkin(v) {
 // the skin choice only applies to this device's own server and /material/
 // need not exist on the other one (a server's root serves its default skin).
 const lmsUrl = computed(() => {
-  if (lms.savedMode === 'follow' && lms.savedHost) return `http://${lms.savedHost}:9000`;
+  if (lms.savedMode === 'follow' && lms.savedHost) return `http://${lms.savedHost}:${lms.savedPort || 9000}`;
   if (skin.choice === 'osmium') return `http://${host}:9000/material/?defaultTheme=dark/Osmium`;
   if (skin.choice === 'material') return `http://${host}:9000/material/`;
   return `http://${host}:9000`;
@@ -2018,7 +2041,7 @@ async function saveBackupScheduled(v) {
 
 onMounted(async () => {
   loadNet(); loadIpv4(); loadAudio(); loadDsp(); loadFir(); loadToggles(); loadShell(); loadLms(); loadLyrion(); loadSkin(); loadPlayback();
-  loadMode(); loadEngine(); loadPlayerEnabled(); loadUiRes(); loadUiScreens(); loadUiRefresh(); loadUiRotation(); loadPointer(); loadTimezone(); loadVuMeter(); loadVuStyle(); loadVuStore(false); loadNpAnimation(); loadAnimStore(false); loadAutoExpand(); loadChannel(); checkAll(); resumePlanIfRunning(); loadBackups(); loadTailscale();
+  loadMode(); loadEngine(); loadPlayerEnabled(); loadUiRes(); loadUiScreens(); loadUiRefresh(); loadUiRotation(); loadPointer(); loadTimezone(); loadVuMeter(); loadVuStyle(); loadVuStore(false); loadNpAnimation(); loadAnimStore(false); loadAutoExpand(); loadChannel(); checkAll(); resumePlanIfRunning(); loadBackups(); loadTailscale(); loadDisplayPanels();
   timezonePoll = setInterval(pollTimezone, 10000);
   // Tell the global UpdateProgressOverlay (mounted in App.vue) that this page
   // owns the OTA modal while it's open, so the two never render on top of
@@ -2252,13 +2275,13 @@ function drvStartPoll() {
 
         <label>{{ t('settings.audio.volumeLabel') }}</label>
         <span class="seg">
-          <button :disabled="sqBusy" :class="{ active: sq.conf.volume === 'software' }" @click="setSq({ volume: 'software' })">{{ t('settings.audio.volumeSoftware') }}</button>
-          <button :disabled="sqBusy || !sq.mixers.length" :class="{ active: sq.conf.volume === 'hardware' }" @click="setSq({ volume: 'hardware' })">{{ t('settings.audio.volumeHardware') }}</button>
+          <button :disabled="sqBusy" :class="{ active: (sq.effective ? sq.effective.volume : sq.conf.volume) === 'software' }" @click="setSq({ volume: 'software' })">{{ t('settings.audio.volumeSoftware') }}</button>
+          <button :disabled="sqBusy || !sq.mixers.length" :class="{ active: (sq.effective ? sq.effective.volume : sq.conf.volume) === 'hardware' }" @click="setSq({ volume: 'hardware' })">{{ t('settings.audio.volumeHardware') }}</button>
         </span>
         <p class="muted">{{ sq.mixers.length ? t('settings.audio.volumeHelp') : t('settings.audio.volumeNoMixer') }}</p>
-        <template v-if="sq.conf.volume === 'hardware' && sq.mixers.length > 1">
+        <template v-if="(sq.effective ? sq.effective.volume : sq.conf.volume) === 'hardware' && sq.mixers.length > 1">
           <label>{{ t('settings.audio.mixerLabel') }}</label>
-          <select :value="sq.conf.mixer" :disabled="sqBusy" @change="setSq({ mixer: $event.target.value })">
+          <select :value="sq.conf.mixer || (sq.effective && sq.effective.mixer)" :disabled="sqBusy" @change="setSq({ mixer: $event.target.value })">
             <option v-for="m in sq.mixers" :key="m" :value="m">{{ m }}</option>
           </select>
         </template>
@@ -2284,7 +2307,7 @@ function drvStartPoll() {
           <Pcm2Dsd :mode="sq.conf.pcm2dsd" :filter="sq.conf.pcm2dsd_filter" :upsample="sq.conf.upsample"
                    :upsample-cap="sq.conf.upsample_cap" :output-rate="sq.output_rate"
                    :state="sq.pcm2dsd.state" :upsample-state="sq.pcm2dsd.upsample.state"
-                   :info="sq.pcm2dsd" :volume="sq.conf.volume" :busy="sqBusy" @set="setSq" />
+                   :info="sq.pcm2dsd" :volume="sq.effective ? sq.effective.volume : sq.conf.volume" :busy="sqBusy" @set="setSq" />
         </div>
 
         <label>{{ t('settings.audio.alsaBufferLabel') }}:</label>
@@ -2361,14 +2384,14 @@ function drvStartPoll() {
             <p class="muted">{{ t(z.dsd_detected === 'native' ? 'settings.audio.dsdDetectedNative' : z.dsd_detected === 'pcm' ? 'settings.audio.dsdDetectedPcm' : 'settings.audio.dsdDetectedDop') }}</p>
             <label>{{ t('settings.audio.volumeLabel') }}</label>
             <span class="seg">
-              <button :disabled="zBusy" :class="{ active: z.conf.volume === 'software' }" @click="zoneSet(z, { volume: 'software' })">{{ t('settings.audio.volumeSoftware') }}</button>
-              <button :disabled="zBusy || !z.mixers.length" :class="{ active: z.conf.volume === 'hardware' }" @click="zoneSet(z, { volume: 'hardware' })">{{ t('settings.audio.volumeHardware') }}</button>
+              <button :disabled="zBusy" :class="{ active: (z.effective ? z.effective.volume : z.conf.volume) === 'software' }" @click="zoneSet(z, { volume: 'software' })">{{ t('settings.audio.volumeSoftware') }}</button>
+              <button :disabled="zBusy || !z.mixers.length" :class="{ active: (z.effective ? z.effective.volume : z.conf.volume) === 'hardware' }" @click="zoneSet(z, { volume: 'hardware' })">{{ t('settings.audio.volumeHardware') }}</button>
             </span>
             <p class="muted">{{ z.mixers.length ? t('settings.audio.volumeHelp') : t('settings.audio.volumeNoMixer') }}</p>
             <Pcm2Dsd :mode="z.conf.pcm2dsd" :filter="z.conf.pcm2dsd_filter" :upsample="z.conf.upsample"
                      :upsample-cap="z.conf.upsample_cap"
                      :state="z.pcm2dsd_state" :upsample-state="z.upsample_state"
-                     :info="zones.pcm2dsd" :volume="z.conf.volume" :busy="zBusy" zone @set="(p) => zoneSet(z, p)" />
+                     :info="zones.pcm2dsd" :volume="z.effective ? z.effective.volume : z.conf.volume" :busy="zBusy" zone @set="(p) => zoneSet(z, p)" />
             <button class="danger" style="margin-top: 12px;" :disabled="zBusy" @click="zoneRemove(z)">{{ t('settings.zones.remove') }}</button>
           </div>
         </template>
@@ -2865,6 +2888,8 @@ function drvStartPoll() {
         <p class="sub" style="margin-top: 12px;">{{ t('settings.lyrion.externalHint') }}</p>
         <div class="row">
           <input v-model="lms.host" :placeholder="t('settings.lyrion.serverIpPlaceholder')" />
+          <input v-model="lms.port" type="number" min="1" max="65535" class="fit"
+                 style="max-width: 96px;" :placeholder="t('settings.lyrion.serverPortPlaceholder')" />
           <button class="secondary fit" @click="discoverLms">{{ t('settings.lyrion.search') }}</button>
           <button class="fit" @click="applyLmsRole('follow', lms.host)">{{ t('common.apply') }}</button>
         </div>
@@ -3112,6 +3137,20 @@ function drvStartPoll() {
           </button>
         </div>
       </template>
+
+      <!-- DSI touch panel (Raspberry Pi only). Loads a device-tree overlay at
+           boot, so applying it reboots. Shown even in headless mode: you pick the
+           panel first, reboot, and the display comes up. Hidden on x86. -->
+      <div v-if="dsiSupported" style="margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+        <label>{{ t('settings.display.panel.title') }}</label>
+        <p class="sub" style="margin-top: 4px;">{{ t('settings.display.panel.help') }}</p>
+        <div class="net between" @click="applyPanel('')">
+          <span>{{ t('settings.display.panel.none') }}</span><span class="check" v-if="currentPanel === ''">✓</span>
+        </div>
+        <div v-for="p in dsiPanels" :key="p.id" class="net between" @click="applyPanel(p.id)">
+          <span>{{ p.name }}<span class="muted" v-if="p.detail" style="margin-left: 8px; font-size: 0.85em;">{{ p.detail }}</span></span><span class="check" v-if="p.id === currentPanel">✓</span>
+        </div>
+      </div>
 
       <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
         <p class="sub">{{ t('settings.display.playerLabel') }}</p>

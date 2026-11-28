@@ -102,9 +102,10 @@ class LmsRoleTestCase(unittest.TestCase):
     def test_role_survives_a_reread(self):
         api_server.set_lms_role('follow', '192.168.1.50')
         self.assertEqual(api_server.get_lms_role(),
-                         {'mode': 'follow', 'host': '192.168.1.50'})
+                         {'mode': 'follow', 'host': '192.168.1.50', 'port': 9000})
         api_server.set_lms_role('local', None)
-        self.assertEqual(api_server.get_lms_role(), {'mode': 'local', 'host': None})
+        self.assertEqual(api_server.get_lms_role(),
+                         {'mode': 'local', 'host': None, 'port': 9000})
 
     # ── refusals leave both the args and the service alone ───────────
 
@@ -138,7 +139,36 @@ class LmsRoleTestCase(unittest.TestCase):
         self.assertTrue(result['success'])
         self.assertEqual(result['host'], 'nas.local')
         self.assertIn('-s nas.local ', self._args())
-        self.assertEqual(api_server.get_lms_role(), {'mode': 'follow', 'host': 'nas.local'})
+        self.assertEqual(api_server.get_lms_role(),
+                         {'mode': 'follow', 'host': 'nas.local', 'port': 9000})
+
+    # ── a custom HTTP port alongside the host ────────────────────────
+
+    def test_follow_accepts_a_custom_port(self):
+        self.assertTrue(api_server.set_lms_role('follow', '192.168.1.50', 9001)['success'])
+        self.assertEqual(api_server.get_lms_role(),
+                         {'mode': 'follow', 'host': '192.168.1.50', 'port': 9001})
+
+    def test_port_accepts_a_numeric_string(self):
+        self.assertTrue(api_server.set_lms_role('follow', '192.168.1.50', '9090')['success'])
+        self.assertEqual(api_server.get_lms_role()['port'], 9090)
+
+    def test_missing_port_defaults_to_9000(self):
+        self.assertTrue(api_server.set_lms_role('follow', '192.168.1.50')['success'])
+        self.assertEqual(api_server.get_lms_role()['port'], 9000)
+
+    def test_local_mode_forces_port_9000(self):
+        api_server.set_lms_role('follow', '192.168.1.50', 9001)
+        self.assertTrue(api_server.set_lms_role('local', None, 1234)['success'])
+        self.assertEqual(api_server.get_lms_role()['port'], 9000)
+
+    def test_invalid_port_touches_nothing(self):
+        for bad in (0, 70000, -1, 'abc', '12.3'):
+            result = api_server.set_lms_role('follow', '192.168.1.50', bad)
+            self.assertFalse(result['success'], bad)
+            self.assertEqual(result['code'], 'lms.invalidPort', bad)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self._args(), DEFAULT_ARGS)
 
     def test_ip_address_is_not_looked_up(self):
         def boom(name, timeout=5):

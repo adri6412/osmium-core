@@ -40,12 +40,17 @@ void Api::refreshLmsHost() {
         }
         const QVariantMap m = d.toMap();
         const QString host = m.value("host").toString();
+        const bool follow = (m.value("mode").toString() == "follow" && !host.isEmpty());
         // "local" vuol dire il Lyrion di questo apparecchio: si torna a m_host
-        // (non a 127.0.0.1 fisso, o si romperebbe HIFI_HOST in sviluppo).
-        const QString want = (m.value("mode").toString() == "follow" && !host.isEmpty()) ? host : m_host;
-        if (want == m_lmsHost) return;
-        qInfo("lyrion: si passa a %s", qPrintable(want));
+        // (non a 127.0.0.1 fisso, o si romperebbe HIFI_HOST in sviluppo) e
+        // sempre sulla :9000; la porta custom vale solo per il server seguito.
+        const QString want = follow ? host : m_host;
+        int wantPort = follow ? m.value("port", 9000).toInt() : 9000;
+        if (wantPort < 1 || wantPort > 65535) wantPort = 9000;
+        if (want == m_lmsHost && wantPort == m_lmsPort) return;
+        qInfo("lyrion: si passa a %s:%d", qPrintable(want), wantPort);
         m_lmsHost = want;
+        m_lmsPort = wantPort;
         emit lmsBaseChanged();
     }, 6000);
 }
