@@ -116,6 +116,65 @@ class OwnPlayerTestCase(unittest.TestCase):
         self.assertEqual(lms.sent_to(BT), [])
 
 
+class OwnPlayerStatusTestCase(unittest.TestCase):
+    """own_player_status(): tell the kiosk WHY its own player is not here, so
+    it shows a clear message + recovery button instead of hanging forever."""
+
+    def setUp(self):
+        self.mac = OWN
+        for name, value in (('_own_player_mac', lambda: self.mac),
+                            ('get_lms_role', lambda: {'mode': 'local', 'host': None, 'port': 9000}),
+                            ('_squeezelite_active', lambda: True)):
+            p = mock.patch.object(api_server, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    @staticmethod
+    def _lms(players, raises=False):
+        def fake(playerid, command, timeout=5):
+            if raises:
+                raise RuntimeError('server down')
+            if command[0] == 'serverstatus':
+                return {'players_loop': players}
+            return {}
+        return fake
+
+    def test_server_unreachable(self):
+        with mock.patch.object(api_server, '_lms_request', self._lms([], raises=True)):
+            s = api_server.own_player_status()
+        self.assertFalse(s['server_reachable'])
+        self.assertFalse(s['own_player_present'])
+
+    def test_no_players_means_absent(self):
+        with mock.patch.object(api_server, '_lms_request', self._lms([])):
+            s = api_server.own_player_status()
+        self.assertTrue(s['server_reachable'])
+        self.assertFalse(s['own_player_present'])
+
+    def test_own_player_connected_is_present(self):
+        players = [{'playerid': BT, 'ip': '127.0.0.1:2', 'connected': 1},
+                   {'playerid': OWN, 'ip': '127.0.0.1:1', 'connected': 1}]
+        with mock.patch.object(api_server, '_lms_request', self._lms(players)):
+            s = api_server.own_player_status()
+        self.assertTrue(s['server_reachable'])
+        self.assertTrue(s['own_player_present'])
+
+    def test_own_player_present_but_disconnected_is_absent(self):
+        players = [{'playerid': OWN, 'ip': '127.0.0.1:1', 'connected': 0}]
+        with mock.patch.object(api_server, '_lms_request', self._lms(players)):
+            s = api_server.own_player_status()
+        self.assertFalse(s['own_player_present'])
+
+    def test_squeezelite_flag_separates_migrated_from_down(self):
+        # our player absent from the followed server: running -> "migrated",
+        # not running -> "player didn't start" (the kiosk picks the message).
+        with mock.patch.object(api_server, '_lms_request', self._lms([])):
+            with mock.patch.object(api_server, '_squeezelite_active', lambda: True):
+                self.assertTrue(api_server.own_player_status()['squeezelite_running'])
+            with mock.patch.object(api_server, '_squeezelite_active', lambda: False):
+                self.assertFalse(api_server.own_player_status()['squeezelite_running'])
+
+
 class CaptureScriptTestCase(unittest.TestCase):
 
     def setUp(self):

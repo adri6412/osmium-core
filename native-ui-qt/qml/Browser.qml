@@ -1255,15 +1255,42 @@ Item {
                 Column {
                     id: connCol
                     anchors.centerIn: parent; spacing: 16
+                    width: Math.min(parent.width - 48, 520)
                     visible: !Player.connected
+                    // il nostro player non è sul Lyrion che seguiamo (spostato dal
+                    // tab players di Lyrion, o squeezelite non partito): invece di
+                    // restare appesi mostriamo cosa succede e come rimediare.
+                    property bool diag: Player.ownPlayerMissing
                     // 🚨 col server spento l'attesa non finisce mai: passato questo
                     // tempo la rotellina si ferma, se no la scena si ridisegna a ogni
                     // vsync all'infinito (il costo misurato sta in Spinner.qml)
                     property bool waiting: true
-                    Timer { interval: 10000; running: connCol.visible && connCol.waiting; onTriggered: connCol.waiting = false }
+                    Timer { interval: 10000; running: connCol.visible && connCol.waiting && !connCol.diag; onTriggered: connCol.waiting = false }
                     Connections { target: Player; function onConnectedChanged() { if (Player.connected) connCol.waiting = true } }
-                    Spinner { anchors.horizontalCenter: parent.horizontalCenter; radius: 24; visible: connCol.waiting; active: connCol.waiting && !Player.connected && root.visible && !(Ui.app && Ui.app.expanded) }
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: Tr.t(connCol.waiting ? "player.connecting" : "player.connectError"); color: Theme.silver; font.family: Theme.font; font.pixelSize: 14 }
+
+                    // ── player non su questo server: messaggio chiaro + recupero ──
+                    Text {
+                        visible: connCol.diag; width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: Tr.t("player.noPlayer"); color: Theme.white
+                        font.family: Theme.font; font.pixelSize: 18; font.bold: true
+                    }
+                    Text {
+                        visible: connCol.diag; width: parent.width
+                        horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
+                        text: Tr.t(Player.playerProcessDown ? "player.playerDown" : "player.playerMigrated")
+                        color: Theme.silver; font.family: Theme.font; font.pixelSize: 14
+                    }
+                    PageButton {
+                        visible: connCol.diag
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        primary: true; label: Tr.t("player.bringHere")
+                        onClicked: Player.bringPlayerHome()
+                    }
+
+                    // ── in attesa / errore generico (server irraggiungibile) ──
+                    Spinner { visible: !connCol.diag && connCol.waiting; anchors.horizontalCenter: parent.horizontalCenter; radius: 24; active: connCol.waiting && !Player.connected && root.visible && !(Ui.app && Ui.app.expanded) }
+                    Text { visible: !connCol.diag; anchors.horizontalCenter: parent.horizontalCenter; text: Tr.t(connCol.waiting ? "player.connecting" : "player.connectError"); color: Theme.silver; font.family: Theme.font; font.pixelSize: 14 }
                 }
 
                 // fascia "CD rilevato" in cima alla scheda Musica

@@ -3498,6 +3498,55 @@ def get_lms_role():
         return {'mode': 'local', 'host': None, 'port': port}
     return {'mode': 'follow', 'host': host, 'port': port}
 
+def _squeezelite_active():
+    """True if this box's built-in squeezelite.service is running right now.
+    Used to tell "the player migrated to another Lyrion" (service up, but our
+    MAC is not on the server we follow) from "the player did not start"
+    (service down, e.g. squeezelite crash-looping on an unopenable output)."""
+    try:
+        return _run(['systemctl', 'is-active', '--quiet', 'squeezelite'],
+                    timeout=5).returncode == 0
+    except Exception:
+        log.exception("_squeezelite_active failed")
+        return False
+
+def own_player_status():
+    """Whether THIS box's own player (its squeezelite, matched by MAC) is
+    present on the Lyrion this box currently follows.
+
+    The kiosk uses it to tell three situations apart instead of hanging on a
+    generic "connecting" overlay:
+      - server_reachable == False        -> the followed Lyrion did not answer;
+      - own_player_present == False      -> reachable, but our player is not
+        there: it was moved to another server (squeezelite_running True) or it
+        never came up (squeezelite_running False);
+      - own_player_present == True       -> normal; the kiosk's own lookup takes
+        over and reconnects.
+    Read-only. Identifies the player by MAC (_own_player_ids), which is more
+    robust than the kiosk's name match."""
+    role = get_lms_role()
+    out = {
+        'mode': role.get('mode'),
+        'host': role.get('host'),
+        'port': role.get('port'),
+        'mac': _own_player_mac(),
+        'server_reachable': False,
+        'own_player_present': False,
+        'squeezelite_running': _squeezelite_active(),
+    }
+    try:
+        result = _lms_request('-', ['serverstatus', 0, 999]) or {}
+        out['server_reachable'] = True
+        players = result.get('players_loop', []) or []
+        mine = {str(pid).lower() for pid in _own_player_ids(players) if pid}
+        out['own_player_present'] = any(
+            str(p.get('playerid') or '').lower() in mine and p.get('connected')
+            for p in players)
+    except Exception:
+        # Transport error / server down: server_reachable stays False.
+        pass
+    return out
+
 def _set_local_lyrion_enabled(enable):
     """Start+enable, or stop+disable, this device's OWN Lyrion Music Server.
 
@@ -12230,6 +12279,10 @@ def api_lms_role():
 def api_set_lms_role():
     data = request.get_json(silent=True) or {}
     return jsonify(set_lms_role(data.get('mode'), data.get('host'), data.get('port')))
+
+@app.route('/own_player_status', methods=['GET'])
+def api_own_player_status():
+    return jsonify(own_player_status())
 
 @app.route('/player_name', methods=['GET'])
 def api_player_name():
