@@ -2275,13 +2275,13 @@ function drvStartPoll() {
 
         <label>{{ t('settings.audio.volumeLabel') }}</label>
         <span class="seg">
-          <button :disabled="sqBusy" :class="{ active: sq.conf.volume === 'software' }" @click="setSq({ volume: 'software' })">{{ t('settings.audio.volumeSoftware') }}</button>
-          <button :disabled="sqBusy || !sq.mixers.length" :class="{ active: sq.conf.volume === 'hardware' }" @click="setSq({ volume: 'hardware' })">{{ t('settings.audio.volumeHardware') }}</button>
+          <button :disabled="sqBusy" :class="{ active: (sq.effective ? sq.effective.volume : sq.conf.volume) === 'software' }" @click="setSq({ volume: 'software' })">{{ t('settings.audio.volumeSoftware') }}</button>
+          <button :disabled="sqBusy || !sq.mixers.length" :class="{ active: (sq.effective ? sq.effective.volume : sq.conf.volume) === 'hardware' }" @click="setSq({ volume: 'hardware' })">{{ t('settings.audio.volumeHardware') }}</button>
         </span>
         <p class="muted">{{ sq.mixers.length ? t('settings.audio.volumeHelp') : t('settings.audio.volumeNoMixer') }}</p>
-        <template v-if="sq.conf.volume === 'hardware' && sq.mixers.length > 1">
+        <template v-if="(sq.effective ? sq.effective.volume : sq.conf.volume) === 'hardware' && sq.mixers.length > 1">
           <label>{{ t('settings.audio.mixerLabel') }}</label>
-          <select :value="sq.conf.mixer" :disabled="sqBusy" @change="setSq({ mixer: $event.target.value })">
+          <select :value="sq.conf.mixer || (sq.effective && sq.effective.mixer)" :disabled="sqBusy" @change="setSq({ mixer: $event.target.value })">
             <option v-for="m in sq.mixers" :key="m" :value="m">{{ m }}</option>
           </select>
         </template>
@@ -2307,7 +2307,7 @@ function drvStartPoll() {
           <Pcm2Dsd :mode="sq.conf.pcm2dsd" :filter="sq.conf.pcm2dsd_filter" :upsample="sq.conf.upsample"
                    :upsample-cap="sq.conf.upsample_cap" :output-rate="sq.output_rate"
                    :state="sq.pcm2dsd.state" :upsample-state="sq.pcm2dsd.upsample.state"
-                   :info="sq.pcm2dsd" :volume="sq.conf.volume" :busy="sqBusy" @set="setSq" />
+                   :info="sq.pcm2dsd" :volume="sq.effective ? sq.effective.volume : sq.conf.volume" :busy="sqBusy" @set="setSq" />
         </div>
 
         <label>{{ t('settings.audio.alsaBufferLabel') }}:</label>
@@ -2384,14 +2384,14 @@ function drvStartPoll() {
             <p class="muted">{{ t(z.dsd_detected === 'native' ? 'settings.audio.dsdDetectedNative' : z.dsd_detected === 'pcm' ? 'settings.audio.dsdDetectedPcm' : 'settings.audio.dsdDetectedDop') }}</p>
             <label>{{ t('settings.audio.volumeLabel') }}</label>
             <span class="seg">
-              <button :disabled="zBusy" :class="{ active: z.conf.volume === 'software' }" @click="zoneSet(z, { volume: 'software' })">{{ t('settings.audio.volumeSoftware') }}</button>
-              <button :disabled="zBusy || !z.mixers.length" :class="{ active: z.conf.volume === 'hardware' }" @click="zoneSet(z, { volume: 'hardware' })">{{ t('settings.audio.volumeHardware') }}</button>
+              <button :disabled="zBusy" :class="{ active: (z.effective ? z.effective.volume : z.conf.volume) === 'software' }" @click="zoneSet(z, { volume: 'software' })">{{ t('settings.audio.volumeSoftware') }}</button>
+              <button :disabled="zBusy || !z.mixers.length" :class="{ active: (z.effective ? z.effective.volume : z.conf.volume) === 'hardware' }" @click="zoneSet(z, { volume: 'hardware' })">{{ t('settings.audio.volumeHardware') }}</button>
             </span>
             <p class="muted">{{ z.mixers.length ? t('settings.audio.volumeHelp') : t('settings.audio.volumeNoMixer') }}</p>
             <Pcm2Dsd :mode="z.conf.pcm2dsd" :filter="z.conf.pcm2dsd_filter" :upsample="z.conf.upsample"
                      :upsample-cap="z.conf.upsample_cap"
                      :state="z.pcm2dsd_state" :upsample-state="z.upsample_state"
-                     :info="zones.pcm2dsd" :volume="z.conf.volume" :busy="zBusy" zone @set="(p) => zoneSet(z, p)" />
+                     :info="zones.pcm2dsd" :volume="z.effective ? z.effective.volume : z.conf.volume" :busy="zBusy" zone @set="(p) => zoneSet(z, p)" />
             <button class="danger" style="margin-top: 12px;" :disabled="zBusy" @click="zoneRemove(z)">{{ t('settings.zones.remove') }}</button>
           </div>
         </template>

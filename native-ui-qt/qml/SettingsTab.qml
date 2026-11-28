@@ -1630,11 +1630,12 @@ Item {
             var dm = (z.choices && z.choices.dsd) || ["auto", "dop", "native", "off"], dc = []
             for (var j = 0; j < dm.length; j++) dc.push(cell(Tr.t("settings.audio.dsd." + dm[j]), zn.id + "|" + dm[j], c.dsd === dm[j], "zone_dsd", { hh: 44 }))
             grid(dc)
-            if (zn.mixers && zn.mixers.length) toggle(Tr.t("settings.audio.volumeHardware"), Tr.t("settings.audio.volumeHelp"), c.volume === "hardware", "zone_hwvol", zn.id)
+            var zEffVol = (zn.effective ? zn.effective.volume : c.volume) || "software"
+            if (zn.mixers && zn.mixers.length) toggle(Tr.t("settings.audio.volumeHardware"), Tr.t("settings.audio.volumeHelp"), zEffVol === "hardware", "zone_hwvol", zn.id)
             else note(Tr.t("settings.audio.volumeNoMixer"), "dark")
             secConvert(String(c.pcm2dsd || "off"), String(c.pcm2dsd_filter || "clans-8"), String(c.upsample || "off"),
                        String(zn.pcm2dsd_state || "off"), String(zn.upsample_state || "off"),
-                       z.pcm2dsd || {}, String(c.volume || "software"), zn.id, false, Number(c.upsample_cap || 0))
+                       z.pcm2dsd || {}, zEffVol, zn.id, false, Number(c.upsample_cap || 0))
             grid([acell(Tr.t("settings.zones.remove"), "zone_remove", "red", { hh: 40, arg: zn.id, icon: "trash-2" })])
             end()
         }
@@ -1768,7 +1769,10 @@ Item {
         for (i = 0; i < mr.length; i++) mrc.push(cell(mr[i] ? (mr[i] / 1000) + " kHz" : Tr.t("settings.audio.auto"), String(mr[i]), c.max_rate === mr[i], "sq_rate", { hh: 44 }))
         grid(mrc)
         help("settings.audio.maxRateWarn", 12)
-        if (s.mixers && s.mixers.length) toggle(Tr.t("settings.audio.volumeHardware"), Tr.t("settings.audio.volumeHelp"), c.volume === "hardware", "sq_hwvol")
+        // With the default 'auto' the stored c.volume stays "auto"; s.effective is
+        // what the render will actually do, so the toggle reflects the real state.
+        var effVol = (s.effective ? s.effective.volume : c.volume) || "software"
+        if (s.mixers && s.mixers.length) toggle(Tr.t("settings.audio.volumeHardware"), Tr.t("settings.audio.volumeHelp"), effVol === "hardware", "sq_hwvol")
         else note(Tr.t("settings.audio.volumeNoMixer"), "dark")
         // Card playback switches: the onboard digital (S/PDIF/IEC958) output
         // boots muted on a clean ALSA state, so give it a toggle here.
@@ -1781,7 +1785,7 @@ Item {
             sep()
             secConvert(String(c.pcm2dsd || "off"), String(c.pcm2dsd_filter || "clans-8"), String(c.upsample || "off"),
                        String(s.pcm2dsd.state || "off"), String((s.pcm2dsd.upsample || {}).state || "off"),
-                       s.pcm2dsd, String(c.volume || "software"), "", false, Number(c.upsample_cap || 0))
+                       s.pcm2dsd, effVol, "", false, Number(c.upsample_cap || 0))
             sep()
         }
         var abR = (s.ranges || {}).alsa_buffer || { min: 50, max: 500 }

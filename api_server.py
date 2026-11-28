@@ -2359,9 +2359,17 @@ def set_audio_device(device):
         return {'success': True, 'message': _t('audio.dspOutputSet', _lang(), device=device)}
 
     # The DSD mode, the rate limit and the rest stay as the model says; the
-    # render decides `-D`'s format for the new DAC on its own (auto).
+    # render decides `-D`'s format for the new DAC on its own (auto). A mixer the
+    # user pinned for the old card is almost certainly absent on the new one, so
+    # drop it when it is: render/effective_volume then re-picks (or, for 'auto',
+    # resolves) a control that actually exists on the new DAC.
+    def _switch_output(model):
+        model['output'] = device
+        if model['volume'] == 'hardware' and model['mixer'] \
+                and model['mixer'] not in sq.mixer_controls(device):
+            model['mixer'] = ''
     try:
-        _sq_update(lambda model: model.update(output=device))
+        _sq_update(_switch_output)
     except Exception:
         log.exception("set_audio_device: write config failed")
         return {'success': False, 'code': 'audio.writeConfigFailed',
@@ -2776,6 +2784,11 @@ def get_squeezelite_conf():
     return {
         'conf': model,
         'args': sq.render(model),
+        # The concrete (volume, mixer) the render will actually use: with the
+        # default 'auto' the stored volume stays 'auto', so the UI reads this to
+        # show the hardware-volume toggle in its real state. See effective_volume().
+        'effective': (lambda ev: {'volume': ev[0], 'mixer': ev[1]})(
+            sq.effective_volume(model, model['output'])),
         # 'pcm': no USB DAC on this output (HDMI, the onboard codec, default),
         # so Automatic lets squeezelite convert DSD to PCM -- see sq.probe().
         'dsd_detected': 'native' if sq.is_native(fmt) else ('pcm' if fmt == sq.PCM_ONLY else 'dop'),
@@ -3261,6 +3274,10 @@ def get_zones():
             'conf': {k: z[k] for k in ZONE_TUNABLE},
             'dsd_detected': 'native' if sq.is_native(fmt) else ('pcm' if fmt == sq.PCM_ONLY else 'dop'),
             'mixers': sq.mixer_controls(z['output']),
+            # Concrete (volume, mixer) the zone render will use -- the UI reads it
+            # so the toggle is right even when the stored volume is 'auto'.
+            'effective': (lambda ev: {'volume': ev[0], 'mixer': ev[1]})(
+                sq.effective_volume(z, z['output'])),
             'pcm2dsd_state': sq.pcm2dsd_state(with_server, fmt),
             'upsample_state': sq.upsample_state(with_server, zone=True),
         })

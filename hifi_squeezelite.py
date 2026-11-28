@@ -167,7 +167,12 @@ DEFAULTS = {
     'dsd': 'auto',
     'dsd_delay_ms': 0,
     'max_rate': 0,
-    'volume': 'software',
+    # 'auto' (the default): use the card's hardware volume control when it has a
+    # usable one, software volume otherwise -- resolved at render time, so a fresh
+    # image with a USB DAC gets a working hardware volume on first boot without any
+    # SSH. 'hardware'/'software' are the user's explicit choice from the UI toggle
+    # and pin the behaviour. See effective_volume() / render_argv().
+    'volume': 'auto',
     'mixer': '',
     'alsa_buffer': 100,
     'alsa_periods': 3,
@@ -598,6 +603,35 @@ def mixer_controls(device, run=None):
         return []
 
 
+def effective_volume(m, output, mixer_fn=None):
+    """Resolve the model's `volume` to a concrete (volume, mixer) pair against the
+    card actually behind `output`. `mixer_fn` lists the card's usable volume
+    controls (mixer_controls by default; injectable for tests). The rules:
+
+      software            -> ('software', '')
+      hardware            -> keep the stored mixer if the card still has it; else
+                             re-pick the first control (the card changed under us);
+                             else fall back to software (no control to drive).
+      auto (the default)  -> hardware on the first control when the card has one,
+                             software otherwise.
+
+    So a fresh image with a USB DAC that exposes a volume control gets hardware
+    volume on its own, and we never emit `-V` for a control the card lacks."""
+    v = m.get('volume', 'auto')
+    if v == 'software':
+        return 'software', ''
+    controls = (mixer_fn or mixer_controls)(output)
+    if v == 'hardware':
+        stored = m.get('mixer') or ''
+        if stored and stored in controls:
+            return 'hardware', stored
+        if controls:
+            return 'hardware', controls[0]
+        return 'software', ''
+    # 'auto' (and any stray value normalize() would have made 'auto')
+    return ('hardware', controls[0]) if controls else ('software', '')
+
+
 # ── Playback switches: mute/unmute, e.g. the onboard S/PDIF (IEC958) ─
 # A playback *switch* (pswitch) toggles a path on or off; unlike mixer_controls
 # above it carries no volume, so it never drives squeezelite's `-V`. The usual
@@ -794,7 +828,8 @@ def normalize(model):
     except (TypeError, ValueError):
         rate = 0
     m['max_rate'] = rate if rate in RATES else 0
-    m['volume'] = 'hardware' if str(src.get('volume') or '') == 'hardware' else 'software'
+    vol = str(src.get('volume') or '')
+    m['volume'] = vol if vol in ('hardware', 'software', 'auto') else 'auto'
     mixer = str(src.get('mixer') or '').strip()
     m['mixer'] = mixer if _MIXER_RE.match(mixer) else ''
     m['alsa_buffer'] = norm_buffer(src.get('alsa_buffer'), 'alsa_buffer')
@@ -855,7 +890,7 @@ def set_fields(model, changes):
             if not isinstance(value, int) or isinstance(value, bool) or value not in RATES:
                 raise InvalidField('squeezelite.invalidValue', key, str(value))
         elif key == 'volume':
-            if value not in ('software', 'hardware'):
+            if value not in ('software', 'hardware', 'auto'):
                 raise InvalidField('squeezelite.invalidValue', key, str(value))
         elif key == 'mixer':
             value = str(value or '').strip()
@@ -994,9 +1029,15 @@ def parse_args(args, dsp_target=None):
         rate = got['-r'].split(':', 1)[0]
         if rate.isdigit() and int(rate) in RATES:
             m['max_rate'] = int(rate)
+    # A migrated line reflects exactly what the device already did: -V means the
+    # owner had hardware volume, no -V means software. We pin it either way, so
+    # the one-time import does not silently switch a working device to the new
+    # 'auto' default (which a genuinely fresh model, with no prior ARGS, gets).
     if '-V' in got:
         m['volume'] = 'hardware'
         m['mixer'] = got['-V']
+    else:
+        m['volume'] = 'software'
     if '-a' in got:
         m['alsa_buffer'] = norm_buffer(got['-a'], 'alsa_buffer')
         if ':' in got['-a']:
@@ -1173,7 +1214,7 @@ def upsample_state(model, zone=False):
 
 
 def render_argv(model, probe_fn=None, visualizer=True, name=None, zone=False, proc_asound=None,
-                p2d_subdev=None):
+                p2d_subdev=None, mixer_fn=None):
     """squeezelite's arguments for a model, as a list. `probe_fn(device)`
     tells what the DAC declares for DSD (defaults to reading /proc/asound).
     `visualizer`: `-v`, the VU meters' shared memory -- the built-in player
@@ -1260,8 +1301,10 @@ def render_argv(model, probe_fn=None, visualizer=True, name=None, zone=False, pr
     # acts on the PCM, before the conversion. A hardware mixer control belongs
     # to the chosen card, so drop it when we fell back to `null`: that card
     # is gone and `-V` on a missing control would only warn.
-    if not pcm_only and m['volume'] == 'hardware' and m['mixer'] and not fell_back:
-        out += ['-V', m['mixer']]
+    if not pcm_only and not fell_back:
+        vol, mix = effective_volume(m, output, mixer_fn)
+        if vol == 'hardware' and mix:
+            out += ['-V', mix]
     # ALSA output buffer (`-a <ms>:<periods>`). The built-in player drives a USB
     # DAC, whose isochronous audio slots jitter on this box (a shared USB2
     # controller, a weak CPU): too small an ALSA buffer underruns at the USB
